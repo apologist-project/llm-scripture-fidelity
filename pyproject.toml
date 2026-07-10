@@ -17,6 +17,7 @@ dependencies = [
     "openai>=1.40",
     "anthropic>=0.40",
     "google-genai>=1.0",
+    "parallel-web>=1.0",
 ]
 
 [project.optional-dependencies]

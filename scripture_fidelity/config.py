@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-VALID_METHODS = ("unassisted", "rag", "tool_call", "output_buffer")
+VALID_METHODS = ("unassisted", "rag", "tool_call", "output_buffer", "web_search")
 VALID_APIS = ("helloao", "api_bible", "youversion")
 VALID_PROVIDERS = ("openai", "anthropic", "google", "together", "grok", "mockllm")
 

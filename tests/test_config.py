@@ -56,6 +56,15 @@ def test_unknown_method(monkeypatch):
         load_config()
 
 
+def test_all_methods_valid(monkeypatch):
+    set_env(
+        monkeypatch,
+        METHODS='["unassisted", "rag", "tool_call", "output_buffer", "web_search"]',
+    )
+    config = load_config()
+    assert "web_search" in config.methods
+
+
 def test_unknown_api(monkeypatch):
     set_env(
         monkeypatch,

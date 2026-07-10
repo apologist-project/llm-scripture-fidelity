@@ -203,6 +203,15 @@ def _cmd_run(args) -> int:
         console.print("[yellow]Dry run: no model calls made.[/yellow]")
         return 0
 
+    import os
+
+    if "web_search" in config.methods and not os.environ.get("PARALLEL_API_KEY"):
+        console.print(
+            "[red]Config error:[/red] PARALLEL_API_KEY is not set "
+            "(required for the web_search method)"
+        )
+        return 2
+
     run_dir = Path(args.results_dir) / new_run_id()
     console.print(f"Run directory: [bold]{run_dir}[/bold]")
     log_dir = run_study(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from inspect_ai.solver import Generate, Solver, TaskState, generate, solver, system_message, use_tools
@@ -86,6 +87,45 @@ def get_passage(translation: TranslationConfig, service: PassageService) -> Tool
     return execute
 
 
+@tool
+def search_web() -> Tool:
+    async def execute(objective: str, search_queries: list[str]) -> str:
+        """Search the web for the exact text of a Bible passage.
+
+        Args:
+            objective: What you are trying to find, e.g. "The exact text of
+                John 3:16 in the Berean Standard Bible translation".
+            search_queries: One to five web search queries, e.g.
+                ["John 3:16 Berean Standard Bible text"].
+
+        Returns:
+            Search results as titled excerpts from web pages.
+        """
+        from parallel import AsyncParallel
+
+        api_key = os.environ.get("PARALLEL_API_KEY", "")
+        if not api_key:
+            return "Error: PARALLEL_API_KEY is not set"
+        client = AsyncParallel(api_key=api_key)
+        try:
+            result = await client.search(
+                objective=objective,
+                search_queries=search_queries[:5],
+                max_chars_total=6000,
+            )
+        finally:
+            await client.close()
+        if not result.results:
+            return "No results found."
+        parts = []
+        for r in result.results:
+            excerpts = "\n".join(r.excerpts or [])
+            parts.append(f"[{r.title}]({r.url})\n{excerpts}")
+        return "\n\n---\n\n".join(parts)
+
+    return execute
+
+
 def solver_chain(
     method: str,
     language: str,
@@ -96,6 +136,8 @@ def solver_chain(
     chain: list[Solver] = [system_message(system_prompt(language))]
     if method == "tool_call":
         chain.append(use_tools(get_passage(translation, service)))
+    elif method == "web_search":
+        chain.append(use_tools(search_web()))
     chain.append(generate())
     if method == "output_buffer":
         chain.append(output_buffer_transform())

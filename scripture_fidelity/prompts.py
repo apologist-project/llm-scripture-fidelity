@@ -37,6 +37,12 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "<quote> tags: {{QUOTE:$reference}} \u2014 it will be replaced "
             "programmatically with the passage text."
         ),
+        "web_search": Template(
+            "Quote $reference from the $translation_name ($translation_id) "
+            "translation of the Bible, exactly word for word. First call the "
+            "search_web tool to find the exact text of the passage in this "
+            "translation, then reproduce it exactly as found."
+        ),
     },
     "zho": {
         "system": Template(
@@ -74,6 +80,14 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "\u8bf7\u5728 <quote> \u6807\u7b7e\u4e4b\u95f4\u8f93\u51fa\u4ee5\u4e0b"
             "\u5360\u4f4d\u7b26\uff1a{{QUOTE:$reference}} \u2014 \u5b83\u5c06\u88ab"
             "\u7a0b\u5e8f\u81ea\u52a8\u66ff\u6362\u4e3a\u7ecf\u6587\u6587\u672c\u3002"
+        ),
+        "web_search": Template(
+            "\u8bf7\u9010\u5b57\u5f15\u7528\u300a\u5723\u7ecf\u300b"
+            "$translation_name\uff08$translation_id\uff09\u8bd1\u672c\u4e2d\u7684 "
+            "$reference\u3002\u8bf7\u5148\u8c03\u7528 search_web \u5de5\u5177"
+            "\u5728\u7f51\u4e0a\u641c\u7d22\u8be5\u8bd1\u672c\u4e2d\u8fd9\u6bb5"
+            "\u7ecf\u6587\u7684\u51c6\u786e\u6587\u672c\uff0c\u7136\u540e\u539f"
+            "\u6837\u9010\u5b57\u5f15\u7528\u3002"
         ),
     },
 }
