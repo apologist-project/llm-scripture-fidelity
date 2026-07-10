@@ -41,7 +41,7 @@ cp .env.example .env
 | `REFERENCES` | Scripture references to test. Each entry is a string (`"John 3:16"`) or an object with a grouping label: `{"ref": "Psalm 117", "type": "chapter"}`. Supports single verses, ranges (`Romans 8:38-39`), cross-chapter ranges (`Luke 9:57-10:2`), and whole chapters. When `type` is omitted it is inferred (`single`/`range`/`chapter`). |
 | `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `output_buffer`, `web_search`. |
 | `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and `api_bible_id` (the provider-specific identifier). Optional `name` for display. |
-| `LANGUAGES` | Prompt languages, crossed with every translation. Currently `eng` and `zho` have prompt templates. |
+| `LANGUAGES` | Prompt languages, crossed with every translation. Prompt templates exist for `eng`, `zho`, `spa`, `fra`, `deu`, `hin`, `ara`, `por`, `urd`, `rus`, and `ben`. |
 | `MODELS` | Models as `{"provider": ..., "model": ...}`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `grok`, and `mockllm` (for testing without API calls). |
 | `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. |
 
