@@ -129,5 +129,13 @@ def run_study(
         # abort a large grid: retry it, then record the error and move on.
         retry_on_error=3,
         fail_on_error=False,
+        # Without these, Inspect retries transient HTTP errors *forever*
+        # (backing off up to 30 min between attempts) and a hung connection
+        # never times out — either can stall the run indefinitely on its
+        # last task. Bound each attempt and the retry budget so a stuck
+        # request becomes a sample error handled by retry_on_error above.
+        attempt_timeout=300,
+        timeout=1800,
+        max_retries=5,
     )
     return log_dir
