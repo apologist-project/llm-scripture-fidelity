@@ -19,6 +19,24 @@ def new_run_id() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
+def raise_file_descriptor_limit() -> None:
+    """Raise the soft open-file limit to the hard limit (POSIX only).
+
+    Large grids open many eval log files at once; the macOS default soft
+    limit of 256 is easily exceeded ("Too many open files").
+    """
+    try:
+        import resource
+    except ImportError:  # non-POSIX (e.g. Windows)
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft < hard:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+        except (ValueError, OSError):
+            pass
+
+
 async def prefetch_passages(
     config: StudyConfig, service: PassageService
 ) -> dict[str, dict[str, Passage]]:
@@ -79,6 +97,8 @@ def run_study(
 ) -> Path:
     """Execute the full study grid; returns the Inspect log directory."""
     from inspect_ai import eval as inspect_eval
+
+    raise_file_descriptor_limit()
 
     service = (
         PassageService(cache_dir) if cache_dir is not None else PassageService()
