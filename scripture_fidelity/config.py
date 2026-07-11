@@ -11,7 +11,10 @@ from dotenv import load_dotenv
 
 VALID_METHODS = ("unassisted", "rag", "tool_call", "output_buffer", "web_search")
 VALID_APIS = ("ao_lab", "api_bible", "youversion")
-VALID_PROVIDERS = ("openai", "anthropic", "google", "together", "grok", "mockllm")
+VALID_PROVIDERS = ("openai", "anthropic", "google", "together", "xai", "mockllm")
+
+# Study provider name -> Inspect provider prefix (where they differ)
+_INSPECT_PROVIDER_ALIASES = {"xai": "grok"}
 
 
 class ConfigError(ValueError):
@@ -44,7 +47,8 @@ class ModelConfig:
 
     @property
     def inspect_model(self) -> str:
-        return f"{self.provider}/{self.model}"
+        provider = _INSPECT_PROVIDER_ALIASES.get(self.provider, self.provider)
+        return f"{provider}/{self.model}"
 
 
 @dataclass

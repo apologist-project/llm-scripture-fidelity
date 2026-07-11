@@ -42,7 +42,7 @@ cp .env.example .env
 | `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `output_buffer`, `web_search`. |
 | `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and `api_bible_id` (the provider-specific identifier). Optional `name` for display. |
 | `LANGUAGES` | Prompt languages, crossed with every translation. Prompt templates exist for `eng`, `zho`, `spa`, `fra`, `deu`, `hin`, `ara`, `por`, `urd`, `rus`, and `ben`. |
-| `MODELS` | Models as `{"provider": ..., "model": ...}`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `grok`, and `mockllm` (for testing without API calls). |
+| `MODELS` | Models as `{"provider": ..., "model": ...}`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), and `mockllm` (for testing without API calls). |
 | `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. |
 
 The run grid is the full cross product: references × methods × translations × languages × models × temperatures.
