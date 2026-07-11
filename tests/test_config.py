@@ -27,6 +27,7 @@ def set_env(monkeypatch, **overrides):
 
 def test_valid_config(monkeypatch):
     set_env(monkeypatch)
+    monkeypatch.delenv("REFERENCE_SET_SIZES", raising=False)
     config = load_config()
     assert [r.ref for r in config.references] == ["John 3:16", "Psalm 117"]
     assert config.references[0].type == "well_known_single"
@@ -35,7 +36,39 @@ def test_valid_config(monkeypatch):
     assert config.translations[0].display_name == "Berean Standard Bible"
     assert config.models[0].inspect_model == "mockllm/model"
     assert config.temperatures == [0.0, 0.7]
+    assert config.set_sizes == [1]  # default
     assert config.permutation_count() == 2 * 2 * 1 * 1 * 1 * 2
+
+
+def test_set_sizes_config(monkeypatch):
+    set_env(monkeypatch, REFERENCE_SET_SIZES="[1, 2]")
+    config = load_config()
+    assert config.set_sizes == [1, 2]
+    # size 1 -> two sets of one; size 2 -> one set of two
+    assert config.reference_sets(1) == [
+        [config.references[0]],
+        [config.references[1]],
+    ]
+    assert config.reference_sets(2) == [config.references]
+    assert config.sample_count() == 3
+    assert config.permutation_count() == 3 * 2 * 1 * 1 * 1 * 2
+
+
+def test_set_sizes_chunking_remainder(monkeypatch):
+    set_env(
+        monkeypatch,
+        REFERENCES='["John 3:16", "Psalm 117", "Genesis 1:1"]',
+        REFERENCE_SET_SIZES="[2]",
+    )
+    config = load_config()
+    sets = config.reference_sets(2)
+    assert [len(s) for s in sets] == [2, 1]
+
+
+def test_invalid_set_sizes(monkeypatch):
+    set_env(monkeypatch, REFERENCE_SET_SIZES="[0]")
+    with pytest.raises(ConfigError, match="REFERENCE_SET_SIZES"):
+        load_config()
 
 
 def test_missing_var(monkeypatch):

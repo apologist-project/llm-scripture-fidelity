@@ -55,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
         ("--languages", "Comma-separated subset of LANGUAGES"),
         ("--references", "Comma-separated subset of REFERENCES"),
         ("--temperatures", "Comma-separated temperatures (replaces TEMPERATURES)"),
+        (
+            "--set-sizes",
+            "Comma-separated reference set sizes (replaces REFERENCE_SET_SIZES)",
+        ),
     ]:
         run.add_argument(flag, default=None, help=help_text)
 
@@ -121,6 +125,11 @@ def _apply_overrides(config, args):
     )
     if args.temperatures is not None:
         config.temperatures = [float(t) for t in _csv(args.temperatures)]
+    if args.set_sizes is not None:
+        sizes = [int(s) for s in _csv(args.set_sizes)]
+        if any(s < 1 for s in sizes):
+            raise ConfigError("--set-sizes: sizes must be positive integers")
+        config.set_sizes = sizes
     return config
 
 
@@ -133,6 +142,7 @@ def _print_grid(config, iterations: int) -> None:
     table.add_column("Values")
     for name, values in [
         ("references", [r.ref for r in config.references]),
+        ("set sizes", [str(s) for s in config.set_sizes]),
         ("methods", config.methods),
         ("translations", [t.id for t in config.translations]),
         ("languages", config.languages),
@@ -149,6 +159,7 @@ def _print_grid(config, iterations: int) -> None:
         * len(config.translations)
         * len(config.languages)
         * len(config.temperatures)
+        * len(config.set_sizes)
     )
     console.print(
         f"Inspect tasks: [bold]{tasks}[/bold] "

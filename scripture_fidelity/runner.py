@@ -66,7 +66,8 @@ def build_tasks(
     passages: dict[str, dict[str, Passage]],
     service: PassageService,
 ) -> list:
-    """One Inspect task per (method, translation, language, temperature)."""
+    """One Inspect task per (method, translation, language, temperature,
+    set size)."""
     return [
         build_task(
             method=method,
@@ -76,12 +77,14 @@ def build_tasks(
             references=config.references,
             passages=passages[translation.id],
             service=service,
+            set_size=set_size,
         )
-        for method, translation, language, temperature in itertools.product(
+        for method, translation, language, temperature, set_size in itertools.product(
             config.methods,
             config.translations,
             config.languages,
             config.temperatures,
+            config.set_sizes,
         )
     ]
 

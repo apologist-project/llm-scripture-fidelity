@@ -1,8 +1,9 @@
 """Tests for the output-buffer placeholder transform."""
 
-from scripture_fidelity.solvers import apply_output_buffer
+from scripture_fidelity.solvers import apply_output_buffer, apply_output_buffer_multi
 
 TRUTH = "For God so loved the world..."
+TRUTH2 = "Praise the LORD, all you nations!"
 
 
 def test_replaces_matching_placeholder():
@@ -51,3 +52,36 @@ def test_unparseable_placeholder_reference():
     text, ok = apply_output_buffer(original, "John 3:16", TRUTH)
     assert text == original
     assert ok is False
+
+
+def test_multi_replaces_all_placeholders():
+    expected = [("John 3:16", TRUTH), ("Psalm 117", TRUTH2)]
+    text, ok = apply_output_buffer_multi(
+        '<quote ref="John 3:16">{{QUOTE:John 3:16}}</quote>\n'
+        '<quote ref="Psalm 117">{{QUOTE:Psalm 117}}</quote>',
+        expected,
+    )
+    assert TRUTH in text and TRUTH2 in text
+    assert ok is True
+
+
+def test_multi_missing_placeholder_not_ok():
+    expected = [("John 3:16", TRUTH), ("Psalm 117", TRUTH2)]
+    text, ok = apply_output_buffer_multi("{{QUOTE:John 3:16}}", expected)
+    assert text == TRUTH
+    assert ok is False
+
+
+def test_multi_duplicate_placeholder_not_ok():
+    expected = [("John 3:16", TRUTH), ("Psalm 117", TRUTH2)]
+    text, ok = apply_output_buffer_multi(
+        "{{QUOTE:John 3:16}} {{QUOTE:John 3:16}}", expected
+    )
+    assert ok is False
+
+
+def test_multi_alias_reference_matches():
+    expected = [("John 3:16", TRUTH)]
+    text, ok = apply_output_buffer_multi("{{QUOTE:Jn 3:16}}", expected)
+    assert text == TRUTH
+    assert ok is True

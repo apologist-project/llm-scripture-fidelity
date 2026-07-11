@@ -59,10 +59,28 @@ class StudyConfig:
     languages: list[str] = field(default_factory=list)
     models: list[ModelConfig] = field(default_factory=list)
     temperatures: list[float] = field(default_factory=list)
+    set_sizes: list[int] = field(default_factory=lambda: [1])
+
+    def reference_sets(self, size: int) -> list[list[ReferenceConfig]]:
+        """Chunk the references (in config order) into sets of ``size``.
+
+        The final set may be smaller when the reference count is not an
+        exact multiple. Size 1 reproduces single-reference samples.
+        """
+        return [
+            self.references[i : i + size]
+            for i in range(0, len(self.references), size)
+        ]
+
+    def sample_count(self) -> int:
+        """Total samples per (method, translation, language, temp) variant,
+        summed across all configured set sizes."""
+        return sum(len(self.reference_sets(size)) for size in self.set_sizes)
 
     def variant_counts(self) -> dict[str, int]:
         return {
             "references": len(self.references),
+            "set_sizes": len(self.set_sizes),
             "methods": len(self.methods),
             "translations": len(self.translations),
             "languages": len(self.languages),
@@ -71,14 +89,19 @@ class StudyConfig:
         }
 
     def permutation_count(self) -> int:
-        total = 1
-        for n in self.variant_counts().values():
-            total *= n
-        return total
+        return (
+            self.sample_count()
+            * len(self.methods)
+            * len(self.translations)
+            * len(self.languages)
+            * len(self.models)
+            * len(self.temperatures)
+        )
 
     def to_dict(self) -> dict:
         return {
             "references": [vars(r) for r in self.references],
+            "set_sizes": list(self.set_sizes),
             "methods": list(self.methods),
             "translations": [vars(t) for t in self.translations],
             "languages": list(self.languages),
@@ -87,9 +110,11 @@ class StudyConfig:
         }
 
 
-def _load_json_env(name: str) -> list:
+def _load_json_env(name: str, default: list | None = None) -> list:
     raw = os.environ.get(name, "").strip()
     if not raw:
+        if default is not None:
+            return default
         raise ConfigError(f"Missing required env var {name} (JSON array)")
     try:
         value = json.loads(raw)
@@ -160,6 +185,14 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
 
     temperatures = [float(t) for t in _load_json_env("TEMPERATURES")]
 
+    set_sizes = []
+    for size in _load_json_env("REFERENCE_SET_SIZES", default=[1]):
+        if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+            raise ConfigError(
+                f"REFERENCE_SET_SIZES entries must be positive integers: {size!r}"
+            )
+        set_sizes.append(size)
+
     return StudyConfig(
         references=references,
         methods=methods,
@@ -167,4 +200,5 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         languages=languages,
         models=models,
         temperatures=temperatures,
+        set_sizes=set_sizes,
     )

@@ -14,6 +14,7 @@ DIMENSIONS = [
     "translation",
     "language",
     "temperature",
+    "set_size",
     "reference",
     "ref_type",
 ]
@@ -32,6 +33,7 @@ class TrialRow:
     reference: str
     ref_type: str
     epoch: int
+    set_size: int = 1
     metrics: dict[str, float] = field(default_factory=dict)
     answer: str = ""
 
@@ -67,6 +69,7 @@ def load_rows(log_dir: str | Path) -> list[TrialRow]:
                     reference=md.get("reference", str(sample.id)),
                     ref_type=md.get("ref_type", "?"),
                     epoch=sample.epoch,
+                    set_size=int(md.get("set_size", 1)),
                     metrics={k: float(v) for k, v in score.value.items()},
                     answer=score.answer or "",
                 )

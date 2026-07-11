@@ -19,6 +19,7 @@ _DETAIL_DIMS = (
     "translation",
     "language",
     "temperature",
+    "set_size",
     "reference",
 )
 
@@ -30,6 +31,7 @@ _METRIC_LABELS = {
     "verse_coverage": "Cov",
     "answered": "Ans",
     "placeholder_ok": "PlcOK",
+    "tool_used": "ToolUse",
 }
 
 
@@ -90,6 +92,23 @@ def print_report(rows: list[TrialRow], console: Console | None = None) -> None:
             table.add_row(
                 str(key[0]),
                 _style("placeholder_ok", means.get("placeholder_ok", 0.0)),
+                str(count),
+            )
+        console.print(table)
+
+    # tool_used only applies to methods with an assigned tool
+    tool_rows = [r for r in rows if r.method in ("tool_call", "web_search")]
+    if tool_rows:
+        table = Table(title="Tool adherence: assigned tool invoked, by model")
+        table.add_column("Model")
+        table.add_column("Method")
+        table.add_column("ToolUse", justify="right")
+        table.add_column("n", justify="right", style="dim")
+        for key, means, count in aggregate(tool_rows, ("model", "method")):
+            table.add_row(
+                str(key[0]),
+                str(key[1]),
+                _style("tool_used", means.get("tool_used", 0.0)),
                 str(count),
             )
         console.print(table)

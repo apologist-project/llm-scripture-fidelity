@@ -44,8 +44,9 @@ cp .env.example .env
 | `LANGUAGES` | Prompt languages, crossed with every translation. Prompt templates exist for `eng`, `zho`, `spa`, `fra`, `deu`, `hin`, `ara`, `por`, `urd`, `rus`, and `ben`. |
 | `MODELS` | Models as `{"provider": ..., "model": ...}`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), and `mockllm` (for testing without API calls). |
 | `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. |
+| `REFERENCE_SET_SIZES` | Optional (default `[1]`). Reference set sizes, e.g. `[1, 3]`. For each size > 1 the references list is chunked (in order) into sets of that size, and each set becomes a single prompt asking for all of its passages at once — probing whether models handle every requested reference (e.g. calling `get_passage` once per reference). Size 1 reproduces standard single-reference samples. |
 
-The run grid is the full cross product: references × methods × translations × languages × models × temperatures.
+The run grid is the full cross product: reference sets × methods × translations × languages × models × temperatures.
 
 ### Bible API providers
 
@@ -114,6 +115,7 @@ scripture-fidelity run \
 | `--dry-run` | | Print the grid and exit without any model calls. |
 | `--methods`, `--models`, `--translations`, `--languages`, `--references` | | Comma-separated subsets of the configured lists. |
 | `--temperatures` | | Comma-separated values that *replace* the configured list. |
+| `--set-sizes` | | Comma-separated reference set sizes that *replace* `REFERENCE_SET_SIZES` (e.g. `1,3`). |
 
 Each run prints the report to the terminal and writes to `results/<timestamp>/`:
 
@@ -150,7 +152,14 @@ All metrics are deterministic string comparisons (no LLM judge). The quoted pass
 | `cer` | Character error rate (0 is perfect). For Chinese, comparison is done with whitespace removed. |
 | `verse_coverage` | Fraction of ground-truth verses appearing verbatim (normalized) in the answer. |
 | `answered` | Whether the model produced any quote at all. |
-| `placeholder_ok` | For `output_buffer`: whether the model emitted exactly one well-formed placeholder with the correct reference. |
+| `placeholder_ok` | For `output_buffer`: whether the model emitted exactly one well-formed placeholder per requested reference. |
+| `tool_used` | For `tool_call`/`web_search`: whether the model actually invoked its assigned tool (`get_passage`/`search_web`). For multi-reference `tool_call` samples this is the *coverage*: the fraction of requested references actually looked up via `get_passage` (one call for three references scores 0.33). |
+
+A trial that disobeys its method's instructions (tool not invoked — or, for multi-reference `tool_call` samples, not invoked for every requested reference — or placeholder missing/malformed) **fails**: its fidelity metrics are zeroed (`cer` set to 1) so a model quoting accurately from memory earns no credit for a method it did not follow. `tool_used`/`placeholder_ok` still record the adherence rate, and the sample's explanation in the logs is marked `FAILED (disobeyed prompt)`.
+
+### Multi-reference samples
+
+With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages and requires one attributed quote block per passage: `<quote ref="John 3:16">...</quote>`. Scoring extracts each reference's quote by its `ref` attribute (falling back to positional order for unattributed blocks) and compares it to that reference's own ground truth; the sample's metrics are the per-reference means, so a dropped passage costs its full share. For `output_buffer`, one `{{QUOTE:<ref>}}` placeholder per reference is required. `web_search` adherence stays at "tool invoked at least once", since one search can legitimately cover several passages.
 
 ## Caching
 

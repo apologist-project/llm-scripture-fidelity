@@ -49,15 +49,62 @@ def apply_output_buffer(
     return transformed, ok
 
 
+def apply_output_buffer_multi(
+    text: str, expected: list[tuple[str, str]]
+) -> tuple[str, bool]:
+    """Replace {{QUOTE:<ref>}} placeholders for several expected references.
+
+    ``expected`` is a list of (reference, ground truth text) pairs. Returns
+    (transformed_text, placeholder_ok) where placeholder_ok is True only
+    when every expected reference was matched by exactly one placeholder
+    and no extra placeholders were emitted.
+    """
+    targets = []
+    for ref_str, truth in expected:
+        try:
+            targets.append((parse_reference(ref_str), truth))
+        except ReferenceError:
+            return text, False
+
+    matches = list(PLACEHOLDER_RE.finditer(text or ""))
+    replaced: dict[int, int] = {}
+
+    def _sub(m: re.Match) -> str:
+        try:
+            parsed = parse_reference(m.group(1))
+        except ReferenceError:
+            return m.group(0)
+        for i, (ref, truth) in enumerate(targets):
+            if parsed == ref:
+                replaced[i] = replaced.get(i, 0) + 1
+                return truth
+        return m.group(0)
+
+    transformed = PLACEHOLDER_RE.sub(_sub, text or "")
+    ok = len(matches) == len(targets) and all(
+        replaced.get(i) == 1 for i in range(len(targets))
+    )
+    return transformed, ok
+
+
 @solver
-def output_buffer_transform() -> Solver:
+def output_buffer_transform(multi: bool = False) -> Solver:
     """Post-generation transform phase for the output_buffer method."""
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         raw = state.output.completion
-        transformed, ok = apply_output_buffer(
-            raw, state.metadata["reference"], state.target.text
-        )
+        if multi:
+            expected = list(
+                zip(
+                    state.metadata["references"],
+                    state.metadata["ground_truth_texts"],
+                )
+            )
+            transformed, ok = apply_output_buffer_multi(raw, expected)
+        else:
+            transformed, ok = apply_output_buffer(
+                raw, state.metadata["reference"], state.target.text
+            )
         state.output.completion = transformed
         state.store.set("raw_output", raw)
         state.store.set("placeholder_ok", ok)
@@ -131,14 +178,16 @@ def solver_chain(
     language: str,
     translation: TranslationConfig,
     service: PassageService,
+    multi: bool = False,
 ) -> list[Solver]:
-    """Build the solver chain for one study method."""
-    chain: list[Solver] = [system_message(system_prompt(language))]
+    """Build the solver chain for one study method. ``multi`` selects the
+    multi-reference system prompt and placeholder transform."""
+    chain: list[Solver] = [system_message(system_prompt(language, multi=multi))]
     if method == "tool_call":
         chain.append(use_tools(get_passage(translation, service)))
     elif method == "web_search":
         chain.append(use_tools(search_web()))
     chain.append(generate())
     if method == "output_buffer":
-        chain.append(output_buffer_transform())
+        chain.append(output_buffer_transform(multi=multi))
     return chain

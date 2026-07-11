@@ -21,6 +21,7 @@ _DETAIL_DIMS = (
     "translation",
     "language",
     "temperature",
+    "set_size",
     "reference",
 )
 
@@ -31,6 +32,7 @@ _METRIC_LABELS = {
     "cer": "CER",
     "verse_coverage": "Coverage",
     "placeholder_ok": "Placeholder OK",
+    "tool_used": "Tool used",
 }
 
 
@@ -95,6 +97,24 @@ def build_sections(rows: list[TrialRow]) -> list[dict]:
                         {"text": str(count), "cls": "num dim", "sort": count},
                     ]
                     for key, means, count in aggregate(buffer_rows, ("model",))
+                ],
+            }
+        )
+
+    tool_rows = [r for r in rows if r.method in ("tool_call", "web_search")]
+    if tool_rows:
+        sections.append(
+            {
+                "title": "Tool adherence: assigned tool invoked, by model",
+                "headers": ["Model", "Method", _METRIC_LABELS["tool_used"], "n"],
+                "rows": [
+                    [
+                        _plain(key[0]),
+                        _plain(key[1]),
+                        _cell("tool_used", means.get("tool_used", 0.0)),
+                        {"text": str(count), "cls": "num dim", "sort": count},
+                    ]
+                    for key, means, count in aggregate(tool_rows, ("model", "method"))
                 ],
             }
         )
