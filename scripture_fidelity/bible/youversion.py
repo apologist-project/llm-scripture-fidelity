@@ -67,10 +67,25 @@ class YouVersionProvider(BibleProvider):
         except httpx.HTTPError as e:
             raise ProviderError(f"youversion request error: {path}: {e}") from e
 
+    @staticmethod
+    def _passage_id(ref: Reference) -> str:
+        """YouVersion passage id: BOOK.CH, BOOK.CH.V, or BOOK.CH.V-V."""
+        if ref.verse is None:
+            return f"{ref.book}.{ref.chapter}"
+        if ref.end_verse is None:
+            return f"{ref.book}.{ref.chapter}.{ref.verse}"
+        if ref.end_chapter is not None and ref.end_chapter != ref.chapter:
+            raise ProviderError(
+                f"youversion does not support cross-chapter ranges: {ref.display()}"
+            )
+        return f"{ref.book}.{ref.chapter}.{ref.verse}-{ref.end_verse}"
+
     async def get_passage(
         self, api_bible_id: str, ref: Reference, translation_id: str
     ) -> Passage:
-        data = await self._get_json(f"/bibles/{api_bible_id}/passages/{ref.usfm()}")
+        data = await self._get_json(
+            f"/bibles/{api_bible_id}/passages/{self._passage_id(ref)}"
+        )
         content = extract_content(data)
         if not content:
             raise ProviderError(
