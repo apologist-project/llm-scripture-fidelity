@@ -7,13 +7,13 @@ from pathlib import Path
 from scripture_fidelity.bible.api_bible import APIBibleProvider
 from scripture_fidelity.bible.base import BibleProvider, Passage
 from scripture_fidelity.bible.cache import DEFAULT_CACHE_DIR, PassageCache
-from scripture_fidelity.bible.helloao import HelloAOProvider
+from scripture_fidelity.bible.ao_lab import AOLabProvider
 from scripture_fidelity.bible.youversion import YouVersionProvider
 from scripture_fidelity.config import TranslationConfig
 from scripture_fidelity.references import Reference, parse_reference
 
 _PROVIDERS: dict[str, type[BibleProvider]] = {
-    "helloao": HelloAOProvider,
+    "ao_lab": AOLabProvider,
     "api_bible": APIBibleProvider,
     "youversion": YouVersionProvider,
 }

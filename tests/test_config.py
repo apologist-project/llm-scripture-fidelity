@@ -9,7 +9,7 @@ VALID_ENV = {
     "METHODS": '["unassisted", "rag"]',
     "TRANSLATIONS": (
         '[{"id": "BSB", "name": "Berean Standard Bible", "language": "eng",'
-        ' "api": "helloao", "api_bible_id": "BSB"}]'
+        ' "api": "ao_lab", "api_bible_id": "BSB"}]'
     ),
     "LANGUAGES": '["eng"]',
     "MODELS": '[{"provider": "mockllm", "model": "model"}]',

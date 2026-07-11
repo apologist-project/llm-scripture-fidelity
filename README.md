@@ -53,14 +53,14 @@ The `api` field of each translation selects the provider:
 
 | `api` value | Service | Key required |
 |---|---|---|
-| `helloao` | [AO Lab Free Use Bible API](https://bible.helloao.org/) | None |
+| `ao_lab` | [AO Lab Free Use Bible API](https://bible.helloao.org/) | None |
 | `api_bible` | [API.Bible](https://scripture.api.bible/) | `API_BIBLE_API_KEY` |
 | `youversion` | [YouVersion Platform](https://platform.youversion.com/) | `YOUVERSION_APP_KEY` |
 
 Discover provider-specific translation IDs with:
 
 ```bash
-scripture-fidelity list-bibles --api helloao --language eng
+scripture-fidelity list-bibles --api ao_lab --language eng
 scripture-fidelity list-bibles --api api_bible --language zho
 ```
 
@@ -185,7 +185,7 @@ scripture_fidelity/
   task.py           # Inspect task factory (one task per variant)
   runner.py         # grid expansion, ground-truth prefetch, eval execution
   scoring.py        # metrics + Inspect scorer
-  bible/            # helloao / api_bible / youversion clients + disk cache
+  bible/            # ao_lab / api_bible / youversion clients + disk cache
   report/           # terminal (Rich) and HTML (Jinja2) reports
 tests/              # unit tests
 ```

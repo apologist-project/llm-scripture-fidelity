@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
 
     bibles = sub.add_parser("list-bibles", help="List Bibles available from an API")
     bibles.add_argument(
-        "--api", required=True, choices=["helloao", "api_bible", "youversion"]
+        "--api", required=True, choices=["ao_lab", "api_bible", "youversion"]
     )
     bibles.add_argument(
         "--language", default=None, help="Filter by ISO 639-3 language (e.g. eng)"

@@ -17,7 +17,7 @@ BASE_URL = "https://bible.helloao.org/api"
 
 
 def _flatten_verse_content(content: list) -> str:
-    """Flatten helloao verse content (strings, formatted text, footnotes)."""
+    """Flatten AO Lab verse content (strings, formatted text, footnotes)."""
     parts: list[str] = []
     for item in content:
         if isinstance(item, str):
@@ -30,7 +30,7 @@ def _flatten_verse_content(content: list) -> str:
 
 
 def parse_chapter_verses(chapter_json: dict) -> list[Verse]:
-    """Extract Verse objects from a helloao chapter response."""
+    """Extract Verse objects from an AO Lab chapter response."""
     chapter = chapter_json.get("chapter") or {}
     number = chapter.get("number")
     verses: list[Verse] = []
@@ -46,8 +46,8 @@ def parse_chapter_verses(chapter_json: dict) -> list[Verse]:
     return verses
 
 
-class HelloAOProvider(BibleProvider):
-    name = "helloao"
+class AOLabProvider(BibleProvider):
+    name = "ao_lab"
 
     def __init__(self, client: httpx.AsyncClient | None = None):
         self._client = client
@@ -58,11 +58,11 @@ class HelloAOProvider(BibleProvider):
             resp = await client.get(url)
             if resp.status_code != 200:
                 raise ProviderError(
-                    f"helloao request failed ({resp.status_code}): {url}"
+                    f"ao_lab request failed ({resp.status_code}): {url}"
                 )
             return resp.json()
         except httpx.HTTPError as e:
-            raise ProviderError(f"helloao request error: {url}: {e}") from e
+            raise ProviderError(f"ao_lab request error: {url}: {e}") from e
         finally:
             if self._client is None:
                 await client.aclose()
@@ -82,7 +82,7 @@ class HelloAOProvider(BibleProvider):
             )
         if not verses:
             raise ProviderError(
-                f"helloao returned no verses for {ref.display()} ({api_bible_id})"
+                f"ao_lab returned no verses for {ref.display()} ({api_bible_id})"
             )
         return Passage(
             reference=ref.display(), translation_id=translation_id, verses=verses
