@@ -83,11 +83,11 @@ scripture-fidelity run --dry-run
 Then run the full study (or a subset):
 
 ```bash
-# Full grid, 1 iteration each, terminal report
+# Full grid, 1 iteration each, terminal + HTML report
 scripture-fidelity run
 
-# 3 iterations per permutation, terminal + HTML report
-scripture-fidelity run -n 3 --output both
+# 3 iterations per permutation, for measuring variance
+scripture-fidelity run -n 3
 
 # Narrow the grid without editing .env
 scripture-fidelity run \
@@ -106,8 +106,6 @@ scripture-fidelity run \
 |---|---|---|
 | `--env-file PATH` | `./.env` | Alternate config file. |
 | `-n, --iterations N` | `1` | Iterations per permutation (Inspect epochs), for measuring variance. |
-| `--output cli\|html\|both\|none` | `cli` | Report target after the run. |
-| `--html-file PATH` | `<run dir>/report.html` | HTML report location. |
 | `--results-dir DIR` | `results` | Base directory; each run gets a timestamped subdirectory. |
 | `--concurrency N` | `10` | Max concurrent model connections. |
 | `--max-tasks N` | `4` | Max Inspect tasks running in parallel. |
@@ -117,10 +115,11 @@ scripture-fidelity run \
 | `--methods`, `--models`, `--translations`, `--languages`, `--references` | | Comma-separated subsets of the configured lists. |
 | `--temperatures` | | Comma-separated values that *replace* the configured list. |
 
-Each run writes to `results/<timestamp>/`:
+Each run prints the report to the terminal and writes to `results/<timestamp>/`:
 
 - `config.json` — the exact resolved configuration for reproducibility
 - `logs/` — Inspect eval logs (one per task × model), inspectable with `inspect view`
+- `results.html` — HTML report
 
 ### Regenerating reports
 
@@ -128,7 +127,6 @@ Reports can be rebuilt from a past run's logs without re-running anything:
 
 ```bash
 scripture-fidelity report results/20260710-212847
-scripture-fidelity report results/20260710-212847 --output html --html-file report.html
 ```
 
 ## Reports and metrics

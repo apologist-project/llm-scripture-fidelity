@@ -26,11 +26,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Iterations per permutation (Inspect epochs, default 1)",
     )
     run.add_argument(
-        "--output", choices=["cli", "html", "both", "none"], default="cli",
-        help="Report target after the run (default cli)",
-    )
-    run.add_argument("--html-file", default=None, help="HTML report output path")
-    run.add_argument(
         "--results-dir", default="results", help="Base directory for run output"
     )
     run.add_argument(
@@ -67,11 +62,6 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument(
         "run_dir", help="Run directory (e.g. results/20260710-120000) or log dir"
     )
-    report.add_argument(
-        "--output", choices=["cli", "html", "both"], default="cli",
-        help="Report target (default cli)",
-    )
-    report.add_argument("--html-file", default=None, help="HTML report output path")
 
     bibles = sub.add_parser("list-bibles", help="List Bibles available from an API")
     bibles.add_argument(
@@ -168,23 +158,19 @@ def _print_grid(config, iterations: int) -> None:
     )
 
 
-def _emit_reports(log_dir: Path, output: str, html_file: str | None) -> int:
+def _emit_reports(log_dir: Path) -> int:
+    from scripture_fidelity.report.cli_report import print_report
     from scripture_fidelity.report.data import load_rows
+    from scripture_fidelity.report.html_report import write_html_report
 
     rows = load_rows(log_dir)
     if not rows:
         console.print(f"[red]No scored trials found in {log_dir}[/red]")
         return 1
-    if output in ("cli", "both"):
-        from scripture_fidelity.report.cli_report import print_report
-
-        print_report(rows, console)
-    if output in ("html", "both"):
-        from scripture_fidelity.report.html_report import write_html_report
-
-        path = Path(html_file) if html_file else log_dir.parent / "report.html"
-        write_html_report(rows, path)
-        console.print(f"HTML report written to [bold]{path}[/bold]")
+    print_report(rows, console)
+    path = log_dir.parent / "results.html"
+    write_html_report(rows, path)
+    console.print(f"HTML report written to [bold]{path}[/bold]")
     return 0
 
 
@@ -223,10 +209,7 @@ def _cmd_run(args) -> int:
         display=args.display,
         cache_dir=args.cache_dir,
     )
-    if args.output == "none":
-        console.print(f"Logs written to [bold]{log_dir}[/bold]")
-        return 0
-    return _emit_reports(log_dir, args.output, args.html_file)
+    return _emit_reports(log_dir)
 
 
 def _cmd_report(args) -> int:
@@ -235,7 +218,7 @@ def _cmd_report(args) -> int:
         console.print(f"[red]No such directory: {run_dir}[/red]")
         return 2
     log_dir = run_dir / "logs" if (run_dir / "logs").is_dir() else run_dir
-    return _emit_reports(log_dir, args.output, args.html_file)
+    return _emit_reports(log_dir)
 
 
 def _cmd_list_bibles(args) -> int:
