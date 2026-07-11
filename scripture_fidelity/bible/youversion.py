@@ -1,6 +1,6 @@
 """Client for the YouVersion Platform API (api.youversion.com).
 
-Requires YOUVERSION_APP_KEY (from platform.youversion.com). The passages
+Requires YOUVERSION_API_KEY (from platform.youversion.com). The passages
 endpoint returns content whose exact shape can vary; this client extracts
 text defensively and falls back to a single un-split verse block when
 per-verse structure is unavailable.
@@ -45,12 +45,12 @@ class YouVersionProvider(BibleProvider):
     name = "youversion"
 
     def __init__(self, app_key: str | None = None):
-        self.app_key = app_key or os.environ.get("YOUVERSION_APP_KEY", "")
+        self.app_key = app_key or os.environ.get("YOUVERSION_API_KEY", "")
 
     def _headers(self) -> dict:
         if not self.app_key:
             raise ProviderError(
-                "YOUVERSION_APP_KEY is not set (required for youversion provider)"
+                "YOUVERSION_API_KEY is not set (required for youversion provider)"
             )
         return {"X-YVP-App-Key": self.app_key, "Accept": "application/json"}
 

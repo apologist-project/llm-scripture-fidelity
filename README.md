@@ -55,7 +55,7 @@ The `api` field of each translation selects the provider:
 |---|---|---|
 | `ao_lab` | [AO Lab Free Use Bible API](https://bible.helloao.org/) | None |
 | `api_bible` | [API.Bible](https://scripture.api.bible/) | `API_BIBLE_API_KEY` |
-| `youversion` | [YouVersion Platform](https://platform.youversion.com/) | `YOUVERSION_APP_KEY` |
+| `youversion` | [YouVersion Platform](https://platform.youversion.com/) | `YOUVERSION_API_KEY` |
 
 Discover provider-specific translation IDs with:
 
@@ -69,7 +69,7 @@ scripture-fidelity list-bibles --api api_bible --language zho
 Set only the keys you need in `.env` (never commit it — it is gitignored):
 
 - Model providers: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `TOGETHER_API_KEY`, `XAI_API_KEY`
-- Bible APIs: `API_BIBLE_API_KEY`, `YOUVERSION_APP_KEY`
+- Bible APIs: `API_BIBLE_API_KEY`, `YOUVERSION_API_KEY`
 - Web search: `PARALLEL_API_KEY` (required only when `web_search` is in `METHODS`)
 
 ## Running the study
