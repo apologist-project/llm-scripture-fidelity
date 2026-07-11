@@ -122,5 +122,9 @@ def run_study(
         max_connections=max_connections,
         max_tasks=max_tasks,
         display=display,
+        # A single flaky sample (e.g. transient provider error) must not
+        # abort a large grid: retry it, then record the error and move on.
+        retry_on_error=3,
+        fail_on_error=False,
     )
     return log_dir
