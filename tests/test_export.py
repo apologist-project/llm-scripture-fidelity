@@ -150,6 +150,21 @@ def test_manifest_detects_model_aliases():
     assert sorted(aliases) == ["mockllm/latest", "mockllm/model"]
 
 
+def test_manifest_records_provider_model_args():
+    config = make_config(
+        models=[
+            ModelConfig(provider="together", model="Qwen/Qwen3.7-Max"),
+            ModelConfig(provider="openai", model="gpt-5.4"),
+        ]
+    )
+    manifest = build_run_manifest(config, [make_trial_row()], epochs=1)
+    # Only models with provider-specific args appear; Together streaming is
+    # recorded, OpenAI (no special args) is omitted.
+    assert manifest["model_args"] == {
+        "together/Qwen/Qwen3.7-Max": {"stream": True}
+    }
+
+
 def test_multi_reference_rows_share_request_id_and_regroup(tmp_path):
     from scripture_fidelity.report.data import rows_from_export
 

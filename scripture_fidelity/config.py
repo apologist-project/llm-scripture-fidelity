@@ -26,6 +26,13 @@ VALID_RIGHTS = ("open", "restricted", "unknown")
 # Study provider name -> Inspect provider prefix (where they differ)
 _INSPECT_PROVIDER_ALIASES = {"xai": "grok"}
 
+# Provider-specific Inspect model args (passed to the provider constructor).
+# Together's OpenAI-compatible endpoint defaults to non-streaming, but some
+# models served there (e.g. Qwen 3.x Max) reject non-streaming requests with
+# a "streaming_required" 400; enabling stream satisfies them and is a no-op
+# for models that also support the non-streaming path.
+_PROVIDER_MODEL_ARGS = {"together": {"stream": True}}
+
 
 class ConfigError(ValueError):
     """Raised when the study configuration is invalid."""
@@ -76,6 +83,12 @@ class ModelConfig:
     def inspect_model(self) -> str:
         provider = _INSPECT_PROVIDER_ALIASES.get(self.provider, self.provider)
         return f"{provider}/{self.model}"
+
+    @property
+    def model_args(self) -> dict:
+        """Provider-specific Inspect model args for this model (empty for
+        providers with no special requirements)."""
+        return dict(_PROVIDER_MODEL_ARGS.get(self.provider, {}))
 
 
 @dataclass

@@ -46,6 +46,20 @@ def test_valid_config(monkeypatch):
     assert config.permutation_count() == 2 * 2 * 1 * 1 * 2
 
 
+def test_together_model_enables_streaming(monkeypatch):
+    set_env(
+        monkeypatch,
+        MODELS='[{"provider": "together", "model": "Qwen/Qwen3.7-Max"},'
+        ' {"provider": "openai", "model": "gpt-5.4"}]',
+    )
+    config = load_config()
+    together, openai = config.models
+    assert together.inspect_model == "together/Qwen/Qwen3.7-Max"
+    # Together requires streaming for some models; other providers unaffected.
+    assert together.model_args == {"stream": True}
+    assert openai.model_args == {}
+
+
 def test_set_sizes_config(monkeypatch):
     set_env(monkeypatch, REFERENCE_SET_SIZES="[1, 2]")
     config = load_config()

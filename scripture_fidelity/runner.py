@@ -176,7 +176,14 @@ def run_study(
     )
 
     tasks = build_tasks(config, passages, service)
-    models = [m.inspect_model for m in config.models]
+    # Build model objects rather than passing bare strings so provider-specific
+    # model args (e.g. Together's stream=true, required by some models) apply
+    # per model without affecting the others.
+    from inspect_ai.model import get_model
+
+    models = [
+        get_model(m.inspect_model, **m.model_args) for m in config.models
+    ]
     log_dir = run_dir / "logs"
 
     inspect_eval(

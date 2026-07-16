@@ -237,6 +237,14 @@ def build_run_manifest(
         "requested_models": [m.inspect_model for m in config.models],
         "resolved_models": resolved_models,
         "model_alias_map": alias_map,
+        # Provider-specific Inspect model args actually applied per model
+        # (e.g. Together's stream=true); recorded so the request shape is
+        # auditable alongside the shared generation controls.
+        "model_args": {
+            m.inspect_model: m.model_args
+            for m in config.models
+            if m.model_args
+        },
         "counts": {
             "expected_samples": expected,
             "observed_requests": requests,
