@@ -237,3 +237,74 @@ def test_scoring_config_declares_renderer_and_conjunction():
     assert "final_output_renderer" in config
     assert "quote_span_exact" in config["metrics"]
     assert "final_output_exact" in config["metrics"]
+
+
+def _csv_trial_rows():
+    from scripture_fidelity.report.data import TrialRow
+
+    metrics = {
+        "exact": 1.0, "normalized": 1.0, "similarity": 1.0, "cer": 0.0,
+        "verse_coverage": 1.0, "final_output_exact": 1.0,
+        "method_adherence": 1.0, "end_to_end_exact": 1.0,
+    }
+    return [
+        TrialRow(
+            model="openai/gpt-4o", method="unassisted", translation="BSB",
+            language="eng", temperature=0.0, reference="John 3:16",
+            ref_type="single", epoch=1, metrics=dict(metrics),
+        ),
+        TrialRow(
+            model="openai/gpt-4o", method="rag", translation="BSB",
+            language="eng", temperature=0.0, reference="Psalm 117",
+            ref_type="chapter", epoch=1, metrics={**metrics, "exact": 0.0},
+        ),
+    ]
+
+
+def test_write_csv_reports_matches_sections(tmp_path):
+    import csv
+
+    from scripture_fidelity.report.html_report import (
+        build_sections,
+        write_csv_reports,
+    )
+
+    rows = _csv_trial_rows()
+    csv_dir = tmp_path / "csv"
+    paths = write_csv_reports(rows, csv_dir)
+
+    sections = build_sections(rows)
+    # One CSV per table, all inside the csv/ folder.
+    assert len(paths) == len(sections)
+    assert all(p.parent == csv_dir and p.suffix == ".csv" for p in paths)
+
+    # The detail-matrix CSV mirrors its section's headers and cell text exactly.
+    detail = next(s for s in sections if s["title"].startswith("Detail matrix"))
+    detail_csv = csv_dir / "detail-matrix-mean-over-iterations.csv"
+    assert detail_csv in paths
+    with detail_csv.open(encoding="utf-8", newline="") as f:
+        read = list(csv.reader(f))
+    assert read[0] == detail["headers"]
+    assert read[1:] == [[c["text"] for c in r] for r in detail["rows"]]
+
+
+def test_write_csv_reports_creates_folder(tmp_path):
+    from scripture_fidelity.report.html_report import write_csv_reports
+
+    csv_dir = tmp_path / "nested" / "csv"
+    paths = write_csv_reports(_csv_trial_rows(), csv_dir)
+    assert csv_dir.is_dir()
+    assert paths
+
+
+def test_write_csv_reports_one_file_per_table(tmp_path):
+    from scripture_fidelity.report.html_report import (
+        build_sections,
+        write_csv_reports,
+    )
+
+    rows = _csv_trial_rows()
+    paths = write_csv_reports(rows, tmp_path / "csv")
+    # One CSV per HTML table, and all filenames distinct (no silent overwrite).
+    assert len(paths) == len(build_sections(rows))
+    assert len({p.name for p in paths}) == len(paths)

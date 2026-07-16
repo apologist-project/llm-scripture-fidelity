@@ -195,7 +195,10 @@ def _print_grid(config, iterations: int) -> None:
 def _emit_reports(log_dir: Path) -> int:
     from scripture_fidelity.report.cli_report import print_report
     from scripture_fidelity.report.data import load_rows
-    from scripture_fidelity.report.html_report import write_html_report
+    from scripture_fidelity.report.html_report import (
+        write_csv_reports,
+        write_html_report,
+    )
 
     rows = load_rows(log_dir)
     if not rows:
@@ -205,6 +208,11 @@ def _emit_reports(log_dir: Path) -> int:
     path = log_dir.parent / "results.html"
     write_html_report(rows, path)
     console.print(f"HTML report written to [bold]{path}[/bold]")
+    csv_dir = log_dir.parent / "csv"
+    csv_paths = write_csv_reports(rows, csv_dir)
+    console.print(
+        f"{len(csv_paths)} CSV tables written to [bold]{csv_dir}[/bold]"
+    )
     return 0
 
 
@@ -273,7 +281,10 @@ def _cmd_report(args) -> int:
     if (export_dir / "trials.jsonl").is_file():
         from scripture_fidelity.report.cli_report import print_report
         from scripture_fidelity.report.data import rows_from_export
-        from scripture_fidelity.report.html_report import write_html_report
+        from scripture_fidelity.report.html_report import (
+            write_csv_reports,
+            write_html_report,
+        )
 
         rows = rows_from_export(export_dir)
         if not rows:
@@ -283,6 +294,11 @@ def _cmd_report(args) -> int:
         path = run_dir / "results.html"
         write_html_report(rows, path)
         console.print(f"HTML report written to [bold]{path}[/bold]")
+        csv_dir = run_dir / "csv"
+        csv_paths = write_csv_reports(rows, csv_dir)
+        console.print(
+            f"{len(csv_paths)} CSV tables written to [bold]{csv_dir}[/bold]"
+        )
         return 0
     log_dir = run_dir / "logs" if (run_dir / "logs").is_dir() else run_dir
     return _emit_reports(log_dir)

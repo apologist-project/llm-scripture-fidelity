@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -160,3 +162,46 @@ def write_html_report(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
     return output_path
+
+
+def _slug(title: str) -> str:
+    """Filesystem-safe filename stem derived from a section title."""
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return slug or "table"
+
+
+def write_csv_reports(rows: list[TrialRow], output_dir: Path) -> list[Path]:
+    """Write one CSV per report table into ``output_dir``.
+
+    The CSVs mirror the HTML report exactly: each table in :func:`build_sections`
+    becomes ``<slug>.csv`` with the same header row and the plain text of each
+    cell (no color classes). Returns the paths written, in section order.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    sections = build_sections(rows)
+    written: list[Path] = []
+    used: dict[str, int] = {}
+    for section in sections:
+        stem = _slug(section["title"])
+        # Disambiguate the rare case of two sections slugging to the same name.
+        used[stem] = used.get(stem, 0) + 1
+        if used[stem] > 1:
+            stem = f"{stem}-{used[stem]}"
+        path = output_dir / f"{stem}.csv"
+        with path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(section["headers"])
+            for row in section["rows"]:
+                writer.writerow([cell["text"] for cell in row])
+        written.append(path)
+
+    # Guard against drift between the HTML and CSV outputs: both are generated
+    # from build_sections(), so a CSV per table means one file per HTML table.
+    if len(written) != len(sections):
+        raise RuntimeError(
+            f"CSV/table mismatch: wrote {len(written)} CSV files for "
+            f"{len(sections)} report tables (filename collision?)."
+        )
+    return written

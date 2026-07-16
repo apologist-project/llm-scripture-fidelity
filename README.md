@@ -122,6 +122,7 @@ Each run prints the report to the terminal and writes to `results/<timestamp>/`:
 - `config.json` — the exact resolved configuration for reproducibility
 - `logs/` — Inspect eval logs (one per task × model), inspectable with `inspect view`
 - `results.html` — HTML report
+- `csv/` — one CSV per report table (mirrors the HTML tables), for spreadsheets
 
 ### Regenerating reports
 
