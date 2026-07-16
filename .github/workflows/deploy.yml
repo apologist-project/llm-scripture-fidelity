@@ -1,0 +1,75 @@
+# Build and deploy the single-run API to Google Cloud Run on push to main.
+#
+# Authenticates to Google Cloud with Workload Identity Federation (keyless):
+# no service-account JSON key is stored in GitHub. Cloud Run builds the
+# Dockerfile from source, so this workflow only needs gcloud + a deploy call.
+#
+# Required repo configuration (see docs/DEPLOY.md > "Automated deploys"):
+#   Variables (Settings > Secrets and variables > Actions > Variables):
+#     GCP_PROJECT_ID          e.g. my-scripture-api
+#     GCP_REGION              e.g. us-central1
+#     GCP_SERVICE             e.g. scripture-fidelity-api
+#     GCP_WIF_PROVIDER        projects/NNN/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
+#     GCP_DEPLOY_SA           deployer@PROJECT.iam.gserviceaccount.com
+#     GCP_RUN_SECRETS         KEY=SECRET:latest,... (mounted into the service)
+#
+# The referenced Secret Manager secrets (ENDPOINT_API_TOKEN, provider/Bible
+# keys) must already exist in the project; this workflow does not create them.
+
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    # Skip deploys for docs/test-only changes that never affect the image.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "tests/**"
+  workflow_dispatch: {}
+
+# One in-flight deploy at a time; newer pushes supersede older runs.
+concurrency:
+  group: deploy-cloud-run
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for Workload Identity Federation
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${{ vars.GCP_SERVICE }}" \
+            --source . \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --allow-unauthenticated \
+            --timeout 900 \
+            --cpu 1 --memory 1Gi \
+            --no-cpu-throttling \
+            --max-instances 5 \
+            --set-secrets "${{ vars.GCP_RUN_SECRETS }}"
+
+      - name: Show service URL
+        run: |
+          gcloud run services describe "${{ vars.GCP_SERVICE }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --format 'value(status.url)'

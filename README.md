@@ -131,6 +131,32 @@ Reports can be rebuilt from a past run's logs without re-running anything:
 scripture-fidelity report results/20260710-212847
 ```
 
+## HTTP API (single run)
+
+Besides the CLI, the study can be served as an authenticated HTTP endpoint that
+executes **one** permutation per request and returns the full result package.
+Unlike the CLI, an API run is ephemeral: nothing is written to `results/`, and
+the caller owns the returned JSON.
+
+```bash
+pip install -e ".[api]"
+export ENDPOINT_API_TOKEN="$(openssl rand -hex 32)"   # plus your provider/Bible keys
+scripture-fidelity-serve                              # listens on PORT (default 8080)
+```
+
+- `GET /healthz` — unauthenticated liveness check.
+- `POST /v1/runs` — bearer-authenticated (`Authorization: Bearer $ENDPOINT_API_TOKEN`).
+  The body is a single permutation (`reference` as an object or a list, `method`,
+  `translation`, `language`, `language_pairing_mode`, `language_pair`, `model`,
+  `temperature`, `reference_set_size`). The `200` response contains `status`,
+  `run_id`, `duration_seconds`, and the full package: `manifest`, `trials`,
+  `source_fixtures`, `method_configs`, `scoring_config`, and `report`.
+
+The request/response models live in `scripture_fidelity/api.py`. For
+containerization and hosting (Google Cloud Run, with a GitHub Actions
+auto-deploy on push to `main`, plus Render/VM alternatives), see
+[docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Reports and metrics
 
 Both the terminal (Rich) and HTML reports contain:
