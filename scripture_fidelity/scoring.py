@@ -81,6 +81,37 @@ def extract_quotes(completion: str, references: list[str]) -> dict[str, str]:
     return quotes
 
 
+def analyze_final_output(completion: str) -> dict:
+    """Structural analysis of the final user-visible completion under the
+    declared renderer: <quote> blocks are the required wrapper markup and
+    are removed by the renderer; any non-whitespace text outside them is
+    extraneous. Missing tags yield zero blocks; nested or unbalanced tags
+    leave residual markup that shows up as extraneous text or inside spans.
+    """
+    matches = list(QUOTE_ATTR_RE.finditer(completion or ""))
+    outside = QUOTE_ATTR_RE.sub("", completion or "").strip()
+    return {
+        "quote_block_count": len(matches),
+        "has_extraneous_text": bool(outside),
+        "spans": [m.group(3).strip() for m in matches],
+    }
+
+
+def final_output_exact(completion: str, ground_truth: str) -> float:
+    """1.0 only when the final completion is exactly one quote block whose
+    rendered content matches the ground truth, with nothing else around it."""
+    structure = analyze_final_output(completion)
+    return (
+        1.0
+        if (
+            structure["quote_block_count"] == 1
+            and not structure["has_extraneous_text"]
+            and collapse_ws(structure["spans"][0]) == collapse_ws(ground_truth)
+        )
+        else 0.0
+    )
+
+
 def collapse_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -146,14 +177,19 @@ METRIC_KEYS = [
     "answered",
     "placeholder_ok",
     "tool_used",
+    "quote_span_exact",
+    "final_output_exact",
+    "extraneous_text",
+    "quote_block_count",
+    "method_adherence",
+    "end_to_end_exact",
+    "selection_correct",
+    "lookup_ok",
+    "replacement_ok",
 ]
 
 # Tool each method is instructed to use (None = no tool expected)
 METHOD_TOOLS = {"tool_call": "get_passage", "web_search": "search_web"}
-
-# Fidelity metrics invalidated when the model disobeyed the method's
-# instructions (quoting from memory must not count as method fidelity)
-_FIDELITY_KEYS = ("exact", "normalized", "similarity", "verse_coverage")
 
 
 def tool_was_used(messages, tool_name: str) -> bool:
@@ -200,14 +236,6 @@ def tool_coverage(messages, tool_name: str, references: list[str]) -> float:
     return len(covered) / len(references)
 
 
-def fail_fidelity(metrics: dict[str, float]) -> dict[str, float]:
-    """Zero out fidelity metrics for a disobedient trial."""
-    for key in _FIDELITY_KEYS:
-        metrics[key] = 0.0
-    metrics["cer"] = 1.0
-    return metrics
-
-
 def compute_multi_metrics(
     quotes: dict[str, str],
     truths: list[str],
@@ -231,16 +259,26 @@ def compute_multi_metrics(
 def quotation_fidelity():
     """Inspect scorer producing the full metric dict per sample.
 
-    ``placeholder_ok`` is only meaningful for the output_buffer method
-    (whether the model emitted a well-formed, correctly-referenced
-    placeholder); ``tool_used`` only for tool_call/web_search (whether the
-    model actually invoked its assigned tool). Each is fixed at 1.0 for
-    methods it does not apply to. For multi-reference samples the metrics
-    are per-reference means, and for tool_call ``tool_used`` is the
-    fraction of requested references actually looked up via get_passage.
-    A trial that disobeys its method's instructions (tool not used or only
-    partially used, or placeholder malformed) fails: its fidelity metrics
-    are zeroed so quoting from memory earns no credit.
+    Every component is reported independently — observed text fidelity is
+    never overwritten when the model disobeys its method's instructions:
+
+    - text fidelity (exact/normalized/similarity/cer/verse_coverage) is
+      always the observed comparison of the extracted quote span(s);
+    - ``quote_span_exact`` is the exactness of the extracted quote span;
+    - ``final_output_exact`` additionally requires the whole final
+      completion to be exactly the required quote block(s) with no
+      extraneous text (the declared renderer removes only the wrapper
+      markup — it never selects among multiple blocks);
+    - ``extraneous_text`` / ``quote_block_count`` describe the structure of
+      the final completion;
+    - ``placeholder_ok`` (buffer_transform) and ``tool_used``
+      (tool_call/web_search) report method compliance and are fixed at 1.0
+      where not applicable; ``method_adherence`` is their conjunction;
+    - ``end_to_end_exact`` = final_output_exact AND method_adherence.
+
+    For multi-reference samples the text-fidelity metrics are per-reference
+    means, and for tool_call ``tool_used`` is the fraction of requested
+    references actually looked up via get_passage.
     """
     from inspect_ai.scorer import Score, Target, mean, scorer, stderr
     from inspect_ai.solver import TaskState
@@ -255,32 +293,69 @@ def quotation_fidelity():
             method = state.metadata.get("method")
             references = state.metadata.get("references")
             multi = bool(references) and state.metadata.get("set_size", 1) > 1
+            completion = state.output.completion
 
+            structure = analyze_final_output(completion)
             if multi:
-                quotes = extract_quotes(state.output.completion, references)
+                quotes = extract_quotes(completion, references)
+                truths = state.metadata.get("ground_truth_texts", [])
                 metrics = compute_multi_metrics(
                     quotes,
-                    state.metadata.get("ground_truth_texts", []),
+                    truths,
                     state.metadata.get("ground_truth_verses_per_ref", []),
                     references,
                     language,
+                )
+                spans_exact = metrics["exact"]
+                output_exact = (
+                    1.0
+                    if (
+                        structure["quote_block_count"] == len(references)
+                        and not structure["has_extraneous_text"]
+                        and all(
+                            collapse_ws(quotes.get(ref, "")) == collapse_ws(truth)
+                            for ref, truth in zip(references, truths)
+                        )
+                    )
+                    else 0.0
                 )
                 answer = "\n\n".join(
                     f'<quote ref="{ref}">{quotes.get(ref, "")}</quote>'
                     for ref in references
                 )
             else:
-                quote = extract_quote(state.output.completion)
+                quote = extract_quote(completion)
                 verses = state.metadata.get("ground_truth_verses", [])
                 metrics = compute_metrics(quote, target.text, verses, language)
+                spans_exact = metrics["exact"]
+                output_exact = final_output_exact(completion, target.text)
                 answer = quote
 
-            if method == "output_buffer":
+            metrics["quote_span_exact"] = spans_exact
+            metrics["final_output_exact"] = output_exact
+            metrics["extraneous_text"] = (
+                1.0 if structure["has_extraneous_text"] else 0.0
+            )
+            metrics["quote_block_count"] = float(structure["quote_block_count"])
+
+            if method in ("buffer_transform", "buffer_transform_selection"):
                 metrics["placeholder_ok"] = (
                     1.0 if state.store.get("placeholder_ok") else 0.0
                 )
             else:
                 metrics["placeholder_ok"] = 1.0
+            if method == "buffer_transform_selection":
+                metrics["selection_correct"] = (
+                    1.0 if state.store.get("selection_correct") else 0.0
+                )
+                metrics["lookup_ok"] = 1.0 if state.store.get("lookup_ok") else 0.0
+                metrics["replacement_ok"] = (
+                    1.0 if state.store.get("replacement_ok") else 0.0
+                )
+            else:
+                metrics["selection_correct"] = 1.0
+                metrics["lookup_ok"] = 1.0
+                metrics["replacement_ok"] = 1.0
             expected_tool = METHOD_TOOLS.get(method)
             if expected_tool is None:
                 metrics["tool_used"] = 1.0
@@ -293,26 +368,63 @@ def quotation_fidelity():
                     1.0 if tool_was_used(state.messages, expected_tool) else 0.0
                 )
 
-            disobeyed = []
+            metrics["method_adherence"] = (
+                1.0
+                if metrics["tool_used"] == 1.0 and metrics["placeholder_ok"] == 1.0
+                else 0.0
+            )
+            metrics["end_to_end_exact"] = (
+                1.0
+                if metrics["final_output_exact"] == 1.0
+                and metrics["method_adherence"] == 1.0
+                and metrics["selection_correct"] == 1.0
+                and metrics["lookup_ok"] == 1.0
+                and metrics["replacement_ok"] == 1.0
+                else 0.0
+            )
+
+            failure_tags = []
             if metrics["tool_used"] < 1.0:
                 if metrics["tool_used"] == 0.0:
-                    disobeyed.append(f"{expected_tool} tool not used")
+                    failure_tags.append(f"{expected_tool} tool not used")
                 else:
-                    disobeyed.append(
+                    failure_tags.append(
                         f"{expected_tool} covered only "
                         f"{metrics['tool_used']:.0%} of references"
                     )
             if metrics["placeholder_ok"] == 0.0:
-                disobeyed.append("placeholder missing or malformed")
-            if disobeyed:
-                fail_fidelity(metrics)
-                explanation = "FAILED (disobeyed prompt): " + "; ".join(disobeyed)
-            else:
-                explanation = (
-                    f"similarity={metrics['similarity']:.3f} "
-                    f"cer={metrics['cer']:.3f} exact={metrics['exact']:g}"
+                failure_tags.append("placeholder missing or malformed")
+            if method == "buffer_transform_selection":
+                if metrics["selection_correct"] == 0.0:
+                    failure_tags.append("wrong or unparseable reference selected")
+                if metrics["lookup_ok"] == 0.0:
+                    failure_tags.append("selected reference lookup failed")
+            explanation = (
+                f"similarity={metrics['similarity']:.3f} "
+                f"cer={metrics['cer']:.3f} exact={metrics['exact']:g} "
+                f"end_to_end_exact={metrics['end_to_end_exact']:g}"
+            )
+            if failure_tags:
+                explanation += (
+                    " | method noncompliance: " + "; ".join(failure_tags)
                 )
-            return Score(value=metrics, answer=answer, explanation=explanation)
+            return Score(
+                value=metrics,
+                answer=answer,
+                explanation=explanation,
+                metadata={
+                    "raw_output": state.store.get("raw_output"),
+                    "final_output": completion,
+                    "failure_tags": failure_tags,
+                    "selected_reference_raw": state.store.get(
+                        "selected_reference_raw"
+                    ),
+                    "selected_reference_parsed": state.store.get(
+                        "selected_reference_parsed"
+                    ),
+                    "lookup_fixture_id": state.store.get("lookup_fixture_id"),
+                },
+            )
 
         return score
 

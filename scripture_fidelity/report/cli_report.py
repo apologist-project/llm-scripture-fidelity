@@ -32,6 +32,9 @@ _METRIC_LABELS = {
     "answered": "Ans",
     "placeholder_ok": "PlcOK",
     "tool_used": "ToolUse",
+    "final_output_exact": "OutExact",
+    "method_adherence": "Adhere",
+    "end_to_end_exact": "E2E",
 }
 
 
@@ -81,8 +84,8 @@ def print_report(rows: list[TrialRow], console: Console | None = None) -> None:
             table.add_row(str(key[0]), *_metrics_cells(means, count))
         console.print(table)
 
-    # placeholder_ok only applies to output_buffer trials
-    buffer_rows = [r for r in rows if r.method == "output_buffer"]
+    # placeholder_ok only applies to buffer_transform trials
+    buffer_rows = [r for r in rows if r.method == "buffer_transform"]
     if buffer_rows:
         table = Table(title="Output buffer: placeholder correctness by model")
         table.add_column("Model")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scripture_fidelity.bible.api_bible import APIBibleProvider
@@ -53,6 +55,13 @@ class PassageService:
         passage = await self._provider(translation.api).get_passage(
             translation.api_bible_id, ref, translation.id
         )
+        if not passage.retrieved_at:
+            passage = replace(
+                passage,
+                retrieved_at=datetime.now(timezone.utc).isoformat(
+                    timespec="seconds"
+                ),
+            )
         self._cache.put(translation.api, translation.api_bible_id, ref_key, passage)
         return passage
 

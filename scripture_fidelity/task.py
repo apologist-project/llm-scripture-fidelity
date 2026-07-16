@@ -8,7 +8,7 @@ from inspect_ai.model import GenerateConfig
 
 from scripture_fidelity.bible.base import Passage
 from scripture_fidelity.bible.service import PassageService
-from scripture_fidelity.config import ReferenceConfig, TranslationConfig
+from scripture_fidelity.config import ReferenceConfig, TranslationConfig, fixture_id
 from scripture_fidelity.prompts import build_multi_prompt, build_prompt
 from scripture_fidelity.scoring import quotation_fidelity
 from scripture_fidelity.solvers import solver_chain
@@ -37,6 +37,8 @@ def build_sample(
     language: str,
     temperature: float,
     passage: Passage,
+    pairing_mode: str = "matched",
+    protocol_role: str = "diagnostic",
 ) -> Sample:
     prompt = build_prompt(
         language=language,
@@ -45,6 +47,7 @@ def build_sample(
         translation_name=translation.display_name,
         translation_id=translation.id,
         context=passage.text if method == "rag" else "",
+        description=ref.description,
     )
     return Sample(
         id=ref.ref,
@@ -53,11 +56,17 @@ def build_sample(
         metadata={
             "reference": ref.ref,
             "ref_type": ref.type,
+            "reference_description": ref.description,
             "method": method,
             "translation": translation.id,
             "translation_api": translation.api,
+            "translation_bible_id": translation.api_bible_id,
+            "fixture_id": fixture_id(translation, ref.ref),
             "text_language": translation.language,
             "prompt_language": language,
+            "language_match": language == translation.language,
+            "language_pairing_mode": pairing_mode,
+            "protocol_role": protocol_role,
             "temperature": temperature,
             "set_size": 1,
             "ground_truth_verses": [v.text for v in passage.verses],
@@ -73,6 +82,8 @@ def build_multi_sample(
     temperature: float,
     passages: dict[str, Passage],
     set_size: int,
+    pairing_mode: str = "matched",
+    protocol_role: str = "diagnostic",
 ) -> Sample:
     """One sample asking for several references in a single prompt.
 
@@ -99,8 +110,13 @@ def build_multi_sample(
             "method": method,
             "translation": translation.id,
             "translation_api": translation.api,
+            "translation_bible_id": translation.api_bible_id,
+            "fixture_ids": [fixture_id(translation, r) for r in ref_strings],
             "text_language": translation.language,
             "prompt_language": language,
+            "language_match": language == translation.language,
+            "language_pairing_mode": pairing_mode,
+            "protocol_role": protocol_role,
             "temperature": temperature,
             "set_size": set_size,
             "references": ref_strings,
@@ -121,6 +137,8 @@ def build_task(
     passages: dict[str, Passage],
     service: PassageService,
     set_size: int = 1,
+    pairing_mode: str = "matched",
+    protocol_role: str = "diagnostic",
 ) -> Task:
     """Build one Inspect task for a (method, translation, language, temp,
     set_size) variant. ``passages`` maps reference string -> Passage for
@@ -129,7 +147,14 @@ def build_task(
     if set_size <= 1:
         samples = [
             build_sample(
-                ref, method, translation, language, temperature, passages[ref.ref]
+                ref,
+                method,
+                translation,
+                language,
+                temperature,
+                passages[ref.ref],
+                pairing_mode=pairing_mode,
+                protocol_role=protocol_role,
             )
             for ref in references
         ]
@@ -143,6 +168,8 @@ def build_task(
                 temperature,
                 passages,
                 set_size,
+                pairing_mode=pairing_mode,
+                protocol_role=protocol_role,
             )
             for i in range(0, len(references), set_size)
         ]
@@ -158,7 +185,11 @@ def build_task(
         metadata={
             "method": method,
             "translation": translation.id,
+            "translation_source_key": translation.source_key,
             "prompt_language": language,
+            "language_match": language == translation.language,
+            "language_pairing_mode": pairing_mode,
+            "protocol_role": protocol_role,
             "temperature": temperature,
             "set_size": set_size,
         },

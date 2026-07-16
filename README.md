@@ -12,7 +12,7 @@ The study measures how faithfully LLMs can reproduce Bible passages word for wor
 | `rag` | The authoritative passage text is injected into the prompt; the model must reproduce it. |
 | `tool_call` | The model is given a `get_passage` tool that fetches the exact text from a Bible API. |
 | `web_search` | The model is given a `search_web` tool (Parallel.ai Search API) and must find the text on the open web. |
-| `output_buffer` | The model emits a `{{QUOTE:<reference>}}` placeholder that is programmatically replaced with the exact text in a post-generation transform. |
+| `buffer_transform` | The model emits a `{{QUOTE:<reference>}}` placeholder that is programmatically replaced with the exact text in a post-generation transform. |
 
 ## Installation
 
@@ -39,7 +39,7 @@ cp .env.example .env
 | Variable | Description |
 |---|---|
 | `REFERENCES` | Scripture references to test. Each entry is a string (`"John 3:16"`) or an object with a grouping label: `{"ref": "Psalm 117", "type": "chapter"}`. Supports single verses, ranges (`Romans 8:38-39`), cross-chapter ranges (`Luke 9:57-10:2`), and whole chapters. When `type` is omitted it is inferred (`single`/`range`/`chapter`). |
-| `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `output_buffer`, `web_search`. |
+| `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `buffer_transform`, `web_search`. |
 | `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and `api_bible_id` (the provider-specific identifier). Optional `name` for display. |
 | `LANGUAGES` | Prompt languages, crossed with every translation. Prompt templates exist for `eng`, `zho`, `spa`, `fra`, `deu`, `hin`, `ara`, `por`, `urd`, `rus`, and `ben`. |
 | `MODELS` | Models as `{"provider": ..., "model": ...}`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), and `mockllm` (for testing without API calls). |
@@ -137,7 +137,7 @@ Both the terminal (Rich) and HTML reports contain:
 
 - **Detail matrix** — one row per permutation (mean over iterations)
 - **Averages by variant** — per method, model, translation, language, temperature, reference, and reference type
-- **Placeholder correctness** — `output_buffer` trials only
+- **Placeholder correctness** — `buffer_transform` trials only
 - **Method × model similarity pivot**
 
 The HTML report is a self-contained file with color-coded cells and click-to-sort columns.
@@ -152,14 +152,14 @@ All metrics are deterministic string comparisons (no LLM judge). The quoted pass
 | `cer` | Character error rate (0 is perfect). For Chinese, comparison is done with whitespace removed. |
 | `verse_coverage` | Fraction of ground-truth verses appearing verbatim (normalized) in the answer. |
 | `answered` | Whether the model produced any quote at all. |
-| `placeholder_ok` | For `output_buffer`: whether the model emitted exactly one well-formed placeholder per requested reference. |
+| `placeholder_ok` | For `buffer_transform`: whether the model emitted exactly one well-formed placeholder per requested reference. |
 | `tool_used` | For `tool_call`/`web_search`: whether the model actually invoked its assigned tool (`get_passage`/`search_web`). For multi-reference `tool_call` samples this is the *coverage*: the fraction of requested references actually looked up via `get_passage` (one call for three references scores 0.33). |
 
 A trial that disobeys its method's instructions (tool not invoked — or, for multi-reference `tool_call` samples, not invoked for every requested reference — or placeholder missing/malformed) **fails**: its fidelity metrics are zeroed (`cer` set to 1) so a model quoting accurately from memory earns no credit for a method it did not follow. `tool_used`/`placeholder_ok` still record the adherence rate, and the sample's explanation in the logs is marked `FAILED (disobeyed prompt)`.
 
 ### Multi-reference samples
 
-With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages and requires one attributed quote block per passage: `<quote ref="John 3:16">...</quote>`. Scoring extracts each reference's quote by its `ref` attribute (falling back to positional order for unattributed blocks) and compares it to that reference's own ground truth; the sample's metrics are the per-reference means, so a dropped passage costs its full share. For `output_buffer`, one `{{QUOTE:<ref>}}` placeholder per reference is required. `web_search` adherence stays at "tool invoked at least once", since one search can legitimately cover several passages.
+With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages and requires one attributed quote block per passage: `<quote ref="John 3:16">...</quote>`. Scoring extracts each reference's quote by its `ref` attribute (falling back to positional order for unattributed blocks) and compares it to that reference's own ground truth; the sample's metrics are the per-reference means, so a dropped passage costs its full share. For `buffer_transform`, one `{{QUOTE:<ref>}}` placeholder per reference is required. `web_search` adherence stays at "tool invoked at least once", since one search can legitimately cover several passages.
 
 ## Caching
 

@@ -33,6 +33,9 @@ _METRIC_LABELS = {
     "verse_coverage": "Coverage",
     "placeholder_ok": "Placeholder OK",
     "tool_used": "Tool used",
+    "final_output_exact": "Final output exact",
+    "method_adherence": "Method adherence",
+    "end_to_end_exact": "End-to-end exact",
 }
 
 
@@ -84,7 +87,7 @@ def build_sections(rows: list[TrialRow]) -> list[dict]:
             }
         )
 
-    buffer_rows = [r for r in rows if r.method == "output_buffer"]
+    buffer_rows = [r for r in rows if r.method == "buffer_transform"]
     if buffer_rows:
         sections.append(
             {

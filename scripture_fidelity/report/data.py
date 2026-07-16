@@ -13,6 +13,7 @@ DIMENSIONS = [
     "method",
     "translation",
     "language",
+    "language_match",
     "temperature",
     "set_size",
     "reference",
@@ -20,7 +21,16 @@ DIMENSIONS = [
 ]
 
 # Metrics shown in reports, in display order
-REPORT_METRICS = ["exact", "normalized", "similarity", "cer", "verse_coverage"]
+REPORT_METRICS = [
+    "exact",
+    "normalized",
+    "similarity",
+    "cer",
+    "verse_coverage",
+    "final_output_exact",
+    "method_adherence",
+    "end_to_end_exact",
+]
 
 
 @dataclass
@@ -34,6 +44,10 @@ class TrialRow:
     ref_type: str
     epoch: int
     set_size: int = 1
+    language_match: bool = True
+    language_pairing_mode: str = "matched"
+    protocol_role: str = ""
+    fixture_id: str = ""
     metrics: dict[str, float] = field(default_factory=dict)
     answer: str = ""
 
@@ -59,6 +73,7 @@ def load_rows(log_dir: str | Path) -> list[TrialRow]:
                 )
             if score is None:
                 continue
+            fixture = md.get("fixture_id") or ";".join(md.get("fixture_ids", []))
             rows.append(
                 TrialRow(
                     model=model,
@@ -70,10 +85,61 @@ def load_rows(log_dir: str | Path) -> list[TrialRow]:
                     ref_type=md.get("ref_type", "?"),
                     epoch=sample.epoch,
                     set_size=int(md.get("set_size", 1)),
+                    language_match=bool(md.get("language_match", True)),
+                    language_pairing_mode=md.get("language_pairing_mode", "matched"),
+                    protocol_role=md.get("protocol_role", ""),
+                    fixture_id=fixture,
                     metrics={k: float(v) for k, v in score.value.items()},
                     answer=score.answer or "",
                 )
             )
+    return rows
+
+
+def rows_from_export(export_dir: str | Path) -> list[TrialRow]:
+    """Rebuild trial rows from an exported result package (trials.jsonl),
+    so reports can be recomputed from the normalized export instead of
+    Inspect internals. Per-reference rows from one multi-reference request
+    are aggregated back into a single report row keyed by request_id."""
+    import json
+
+    path = Path(export_dir) / "trials.jsonl"
+    by_request: dict[tuple, list[dict]] = {}
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            by_request.setdefault((r["request_id"],), []).append(r)
+
+    rows: list[TrialRow] = []
+    for members in by_request.values():
+        first = min(members, key=lambda r: r.get("reference_index", 0))
+        reference = "; ".join(
+            m["reference"]
+            for m in sorted(members, key=lambda r: r.get("reference_index", 0))
+        )
+        rows.append(
+            TrialRow(
+                model=first.get("requested_model", "?"),
+                method=first.get("method", "?"),
+                translation=first.get("translation", "?"),
+                language=first.get("prompt_language", "?"),
+                temperature=float(first.get("temperature") or 0.0),
+                reference=reference,
+                ref_type=first.get("ref_type") or ("set" if len(members) > 1 else "?"),
+                epoch=int(first.get("epoch", 1)),
+                set_size=int(first.get("set_size", 1)),
+                language_match=bool(first.get("language_match", True)),
+                language_pairing_mode=first.get("language_pairing_mode", "matched"),
+                protocol_role=first.get("protocol_role") or "",
+                fixture_id=first.get("fixture_id") or "",
+                metrics={
+                    k: float(v) for k, v in (first.get("metrics") or {}).items()
+                },
+                answer=first.get("answer", "") or "",
+            )
+        )
     return rows
 
 

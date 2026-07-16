@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from string import Template
 
-# Keys: system, unassisted, rag, tool_call, output_buffer, web_search
+# Keys: system, unassisted, rag, tool_call, buffer_transform, web_search
 PROMPTS: dict[str, dict[str, Template]] = {
     "eng": {
         "system": Template(
@@ -30,7 +30,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "get_passage tool to retrieve the exact text, then reproduce it "
             "exactly as returned."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "I need $reference from the $translation_name ($translation_id) "
             "translation of the Bible. Do not write out the passage text "
             "yourself. Instead, output exactly this placeholder between the "
@@ -42,6 +42,19 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "translation of the Bible, exactly word for word. First call the "
             "search_web tool to find the exact text of the passage in this "
             "translation, then reproduce it exactly as found."
+        ),
+        # Selection scenario: the passage is described indirectly; the model
+        # must emit a structured reference of its own choosing. The expected
+        # reference is deliberately absent from this prompt.
+        "buffer_transform_selection": Template(
+            "I need a passage from the $translation_name ($translation_id) "
+            "translation of the Bible: $description. Decide which passage "
+            "this describes. Do not write out the passage text yourself. "
+            "Instead, output between the <quote> tags exactly one "
+            "placeholder of the form {{QUOTE:<reference>}}, where "
+            "<reference> is the Scripture reference you selected \u2014 it "
+            "will be looked up and replaced programmatically with the "
+            "passage text."
         ),
     },
     "zho": {
@@ -73,7 +86,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "\u83b7\u53d6\u51c6\u786e\u7ecf\u6587\uff0c\u7136\u540e\u539f\u6837"
             "\u9010\u5b57\u5f15\u7528\u3002"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "\u6211\u9700\u8981\u300a\u5723\u7ecf\u300b$translation_name"
             "\uff08$translation_id\uff09\u8bd1\u672c\u4e2d\u7684 $reference\u3002"
             "\u4e0d\u8981\u81ea\u5df1\u5199\u51fa\u7ecf\u6587\u5185\u5bb9\u3002"
@@ -88,6 +101,18 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "\u5728\u7f51\u4e0a\u641c\u7d22\u8be5\u8bd1\u672c\u4e2d\u8fd9\u6bb5"
             "\u7ecf\u6587\u7684\u51c6\u786e\u6587\u672c\uff0c\u7136\u540e\u539f"
             "\u6837\u9010\u5b57\u5f15\u7528\u3002"
+        ),
+        "buffer_transform_selection": Template(
+            "\u6211\u9700\u8981\u300a\u5723\u7ecf\u300b$translation_name"
+            "\uff08$translation_id\uff09\u8bd1\u672c\u4e2d\u7684\u4e00\u6bb5"
+            "\u7ecf\u6587\uff1a$description\u3002\u8bf7\u5224\u65ad\u8fd9\u6307"
+            "\u7684\u662f\u54ea\u6bb5\u7ecf\u6587\u3002\u4e0d\u8981\u81ea\u5df1"
+            "\u5199\u51fa\u7ecf\u6587\u5185\u5bb9\u3002\u8bf7\u5728 <quote> "
+            "\u6807\u7b7e\u4e4b\u95f4\u53ea\u8f93\u51fa\u4e00\u4e2a\u5f62\u5982 "
+            "{{QUOTE:<\u7ecf\u6587\u51fa\u5904>}} \u7684\u5360\u4f4d\u7b26\uff0c"
+            "\u5176\u4e2d <\u7ecf\u6587\u51fa\u5904> \u662f\u4f60\u9009\u5b9a\u7684"
+            "\u5723\u7ecf\u51fa\u5904 \u2014 \u5b83\u5c06\u88ab\u67e5\u627e\u5e76"
+            "\u7a0b\u5e8f\u81ea\u52a8\u66ff\u6362\u4e3a\u7ecf\u6587\u6587\u672c\u3002"
         ),
     },
     "spa": {
@@ -114,7 +139,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "Primero llama a la herramienta get_passage para obtener el texto "
             "exacto y luego reprodúcelo exactamente como se devuelve."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Necesito $reference de la traducción $translation_name "
             "($translation_id) de la Biblia. No escribas tú mismo el texto del "
             "pasaje. En su lugar, escribe exactamente este marcador entre las "
@@ -127,6 +152,15 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "Primero llama a la herramienta search_web para encontrar el texto "
             "exacto del pasaje en esta traducción y luego reprodúcelo "
             "exactamente como lo encontraste."
+        ),
+        "buffer_transform_selection": Template(
+            "Necesito un pasaje de la traducción $translation_name "
+            "($translation_id) de la Biblia: $description. Decide qué pasaje "
+            "describe esto. No escribas tú mismo el texto del pasaje. En su "
+            "lugar, escribe entre las etiquetas <quote> exactamente un "
+            "marcador de la forma {{QUOTE:<referencia>}}, donde <referencia> "
+            "es la referencia bíblica que seleccionaste — será buscada y "
+            "reemplazada programáticamente por el texto del pasaje."
         ),
     },
     "fra": {
@@ -154,7 +188,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "d'abord l'outil get_passage pour récupérer le texte exact, puis "
             "reproduis-le exactement tel qu'il est renvoyé."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "J'ai besoin de $reference de la traduction $translation_name "
             "($translation_id) de la Bible. N'écris pas toi-même le texte du "
             "passage. Écris plutôt exactement ce marqueur entre les balises "
@@ -167,6 +201,15 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "d'abord l'outil search_web pour trouver le texte exact du passage "
             "dans cette traduction, puis reproduis-le exactement tel que "
             "trouvé."
+        ),
+        "buffer_transform_selection": Template(
+            "J'ai besoin d'un passage de la traduction $translation_name "
+            "($translation_id) de la Bible : $description. Détermine quel "
+            "passage cela décrit. N'écris pas toi-même le texte du passage. "
+            "Écris plutôt entre les balises <quote> exactement un marqueur de "
+            "la forme {{QUOTE:<référence>}}, où <référence> est la référence "
+            "biblique que tu as choisie — elle sera recherchée et remplacée "
+            "programmatiquement par le texte du passage."
         ),
     },
     "deu": {
@@ -194,7 +237,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "Werkzeug get_passage auf, um den exakten Text abzurufen, und gib "
             "ihn dann exakt so wieder, wie er zurückgegeben wird."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Ich benötige $reference aus der Übersetzung $translation_name "
             "($translation_id) der Bibel. Schreibe den Passagentext nicht "
             "selbst. Gib stattdessen genau diesen Platzhalter zwischen den "
@@ -207,6 +250,15 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "Werkzeug search_web auf, um den exakten Text der Passage in "
             "dieser Übersetzung zu finden, und gib ihn dann exakt so wieder, "
             "wie du ihn gefunden hast."
+        ),
+        "buffer_transform_selection": Template(
+            "Ich benötige eine Passage aus der Übersetzung $translation_name "
+            "($translation_id) der Bibel: $description. Entscheide, welche "
+            "Passage damit beschrieben wird. Schreibe den Passagentext nicht "
+            "selbst. Gib stattdessen zwischen den <quote>-Tags genau einen "
+            "Platzhalter der Form {{QUOTE:<Referenz>}} aus, wobei <Referenz> "
+            "die von dir gewählte Bibelstelle ist — sie wird nachgeschlagen "
+            "und programmatisch durch den Passagentext ersetzt."
         ),
     },
     "hin": {
@@ -233,7 +285,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "get_passage टूल को कॉल करके सटीक पाठ प्राप्त करें, फिर उसे "
             "बिल्कुल वैसे ही प्रस्तुत करें जैसा लौटाया गया है।"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "मुझे बाइबल के $translation_name ($translation_id) अनुवाद से "
             "$reference चाहिए। अंश का पाठ स्वयं न लिखें। इसके बजाय <quote> "
             "टैग के बीच बिल्कुल यह प्लेसहोल्डर लिखें: {{QUOTE:$reference}} — "
@@ -244,6 +296,14 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "$reference को शब्दशः, बिल्कुल ज्यों का त्यों उद्धृत करें। पहले "
             "search_web टूल को कॉल करके इस अनुवाद में अंश का सटीक पाठ खोजें, "
             "फिर उसे बिल्कुल वैसे ही प्रस्तुत करें जैसा मिला है।"
+        ),
+        "buffer_transform_selection": Template(
+            "मुझे बाइबल के $translation_name ($translation_id) अनुवाद से "
+            "एक अंश चाहिए: $description। तय करें कि यह किस अंश का वर्णन "
+            "करता है। अंश का पाठ स्वयं न लिखें। इसके बजाय <quote> टैग के "
+            "बीच {{QUOTE:<संदर्भ>}} रूप का ठीक एक प्लेसहोल्डर लिखें, जहाँ "
+            "<संदर्भ> आपके द्वारा चुना गया शास्त्र संदर्भ है — इसे खोजकर "
+            "प्रोग्राम द्वारा अंश के पाठ से बदल दिया जाएगा।"
         ),
     },
     "ara": {
@@ -269,7 +329,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "للكتاب المقدس، حرفيًا كلمة بكلمة. استدعِ أولاً أداة get_passage "
             "للحصول على النص الدقيق، ثم أعد كتابته تمامًا كما أُعيد."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "أحتاج إلى $reference من ترجمة $translation_name "
             "($translation_id) للكتاب المقدس. لا تكتب نص المقطع بنفسك. بدلاً "
             "من ذلك، اكتب هذا العنصر النائب بالضبط بين وسمي <quote>: "
@@ -280,6 +340,14 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "للكتاب المقدس، حرفيًا كلمة بكلمة. استدعِ أولاً أداة search_web "
             "للعثور على النص الدقيق للمقطع في هذه الترجمة، ثم أعد كتابته "
             "تمامًا كما وجدته."
+        ),
+        "buffer_transform_selection": Template(
+            "أحتاج إلى مقطع من ترجمة $translation_name ($translation_id) "
+            "للكتاب المقدس: $description. حدِّد أي مقطع يصفه هذا. لا تكتب نص "
+            "المقطع بنفسك. بدلاً من ذلك، اكتب بين وسمي <quote> عنصرًا نائبًا "
+            "واحدًا بالضبط بالشكل {{QUOTE:<المرجع>}}، حيث <المرجع> هو المرجع "
+            "الكتابي الذي اخترته — سيتم البحث عنه واستبداله برمجيًا بنص "
+            "المقطع."
         ),
     },
     "por": {
@@ -307,7 +375,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "ferramenta get_passage para obter o texto exato e depois "
             "reproduza-o exatamente como retornado."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Preciso de $reference da tradução $translation_name "
             "($translation_id) da Bíblia. Não escreva você mesmo o texto da "
             "passagem. Em vez disso, escreva exatamente este marcador entre "
@@ -319,6 +387,15 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "da Bíblia, exatamente palavra por palavra. Primeiro chame a "
             "ferramenta search_web para encontrar o texto exato da passagem "
             "nesta tradução e depois reproduza-o exatamente como encontrado."
+        ),
+        "buffer_transform_selection": Template(
+            "Preciso de uma passagem da tradução $translation_name "
+            "($translation_id) da Bíblia: $description. Decida qual passagem "
+            "isto descreve. Não escreva você mesmo o texto da passagem. Em "
+            "vez disso, escreva entre as tags <quote> exatamente um marcador "
+            "da forma {{QUOTE:<referência>}}, onde <referência> é a "
+            "referência bíblica que você selecionou — ela será consultada e "
+            "substituída programaticamente pelo texto da passagem."
         ),
     },
     "urd": {
@@ -345,7 +422,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "get_passage ٹول کو کال کر کے درست متن حاصل کریں، پھر اسے بالکل "
             "ویسا ہی نقل کریں جیسا واپس کیا گیا ہے۔"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "مجھے بائبل کے $translation_name ($translation_id) ترجمے سے "
             "$reference چاہیے۔ اقتباس کا متن خود نہ لکھیں۔ اس کے بجائے "
             "<quote> ٹیگز کے درمیان بالکل یہ پلیس ہولڈر لکھیں: "
@@ -357,6 +434,14 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "$reference کو لفظ بہ لفظ، بالکل درست نقل کریں۔ پہلے "
             "search_web ٹول کو کال کر کے اس ترجمے میں اقتباس کا درست متن "
             "تلاش کریں، پھر اسے بالکل ویسا ہی نقل کریں جیسا ملا ہے۔"
+        ),
+        "buffer_transform_selection": Template(
+            "مجھے بائبل کے $translation_name ($translation_id) ترجمے سے "
+            "ایک اقتباس چاہیے: $description۔ فیصلہ کریں کہ یہ کس اقتباس کا "
+            "بیان ہے۔ اقتباس کا متن خود نہ لکھیں۔ اس کے بجائے <quote> ٹیگز "
+            "کے درمیان {{QUOTE:<حوالہ>}} کی شکل کا بالکل ایک پلیس ہولڈر "
+            "لکھیں، جہاں <حوالہ> وہ کتابی حوالہ ہے جو آپ نے منتخب کیا — اسے "
+            "تلاش کر کے پروگرام کے ذریعے اقتباس کے متن سے بدل دیا جائے گا۔"
         ),
     },
     "rus": {
@@ -383,7 +468,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "инструмент get_passage, чтобы получить точный текст, затем "
             "воспроизведи его в точности так, как он возвращён."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Мне нужен $reference из перевода Библии $translation_name "
             "($translation_id). Не пиши текст отрывка сам. Вместо этого "
             "выведи между тегами <quote> ровно этот плейсхолдер: "
@@ -395,6 +480,15 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "($translation_id) в точности слово в слово. Сначала вызови "
             "инструмент search_web, чтобы найти точный текст отрывка в этом "
             "переводе, затем воспроизведи его в точности так, как найдено."
+        ),
+        "buffer_transform_selection": Template(
+            "Мне нужен отрывок из перевода Библии $translation_name "
+            "($translation_id): $description. Определи, какой отрывок это "
+            "описывает. Не пиши текст отрывка сам. Вместо этого выведи между "
+            "тегами <quote> ровно один плейсхолдер вида "
+            "{{QUOTE:<ссылка>}}, где <ссылка> — выбранная тобой ссылка на "
+            "Писание — она будет найдена и программно заменена текстом "
+            "отрывка."
         ),
     },
     "ben": {
@@ -421,7 +515,7 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "টুল কল করে সঠিক পাঠ্য সংগ্রহ করুন, তারপর যেমন ফেরত এসেছে ঠিক "
             "তেমনই পুনরুত্পাদন করুন।"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "আমার বাইবেলের $translation_name ($translation_id) অনুবাদ থেকে "
             "$reference প্রয়োজন। অংশের পাঠ্য নিজে লিখবেন না। পরিবর্তে "
             "<quote> ট্যাগের মধ্যে ঠিক এই প্লেসহোল্ডারটি লিখুন: "
@@ -434,13 +528,21 @@ PROMPTS: dict[str, dict[str, Template]] = {
             "টুল কল করে এই অনুবাদে অংশটির সঠিক পাঠ্য খুঁজুন, তারপর যেমন "
             "পাওয়া গেছে ঠিক তেমনই পুনরুত্পাদন করুন।"
         ),
+        "buffer_transform_selection": Template(
+            "আমার বাইবেলের $translation_name ($translation_id) অনুবাদ থেকে "
+            "একটি অংশ প্রয়োজন: $description। ঠিক করুন এটি কোন অংশকে বর্ণনা "
+            "করে। অংশের পাঠ্য নিজে লিখবেন না। পরিবর্তে <quote> ট্যাগের মধ্যে "
+            "{{QUOTE:<সূত্র>}} আকারের ঠিক একটি প্লেসহোল্ডার লিখুন, যেখানে "
+            "<সূত্র> আপনার নির্বাচিত শাস্ত্রীয় সূত্র — এটি খুঁজে নিয়ে "
+            "প্রোগ্রামের মাধ্যমে অংশের পাঠ্য দিয়ে প্রতিস্থাপিত হবে।"
+        ),
     },
 }
 
 # Multi-reference variants: the prompt asks for several passages at once and
 # requires one attributed quote block per passage. Placeholders: $references
 # (joined list), $translation_name, $translation_id, $context (rag),
-# $example (output_buffer placeholder example).
+# $example (buffer_transform placeholder example).
 MULTI_PROMPTS: dict[str, dict[str, Template]] = {
     "eng": {
         "system": Template(
@@ -470,7 +572,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "each reference to retrieve its exact text, then reproduce each "
             "exactly as returned."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "I need each of the following passages from the "
             "$translation_name ($translation_id) translation of the Bible: "
             "$references. Do not write out any passage text yourself. "
@@ -507,7 +609,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "以下各段经文：$references。请先为每个出处分别调用一次 "
             "get_passage 工具获取准确经文，然后原样逐字引用每一段。"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "我需要《圣经》$translation_name（$translation_id）译本中的以下"
             "各段经文：$references。不要自己写出经文内容。请为每段经文在"
             "各自的引用块中输出一个占位符，例如：$example — 每个占位符"
@@ -549,7 +651,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "obtener su texto exacto y luego reproduce cada uno exactamente "
             "como se devuelve."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Necesito cada uno de los siguientes pasajes de la traducción "
             "$translation_name ($translation_id) de la Biblia: $references. "
             "No escribas tú mismo el texto de ningún pasaje. En su lugar, "
@@ -596,7 +698,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "fois pour chaque référence afin de récupérer son texte exact, "
             "puis reproduis chacun exactement tel qu'il est renvoyé."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "J'ai besoin de chacun des passages suivants de la traduction "
             "$translation_name ($translation_id) de la Bible : $references. "
             "N'écris toi-même le texte d'aucun passage. Écris plutôt pour "
@@ -642,7 +744,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "Werkzeug get_passage auf, um ihren exakten Text abzurufen, und "
             "gib dann jede exakt so wieder, wie sie zurückgegeben wird."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Ich benötige jede der folgenden Passagen aus der Übersetzung "
             "$translation_name ($translation_id) der Bibel: $references. "
             "Schreibe keinen Passagentext selbst. Gib stattdessen für jede "
@@ -687,7 +789,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "get_passage टूल को कॉल करके उसका सटीक पाठ प्राप्त करें, फिर "
             "प्रत्येक को बिल्कुल वैसे ही प्रस्तुत करें जैसा लौटाया गया है।"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "मुझे बाइबल के $translation_name ($translation_id) अनुवाद से "
             "निम्नलिखित प्रत्येक अंश चाहिए: $references। किसी भी अंश का पाठ "
             "स्वयं न लिखें। इसके बजाय प्रत्येक अंश के लिए उसके अपने उद्धरण "
@@ -730,7 +832,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "$references. استدعِ أولاً أداة get_passage مرة واحدة لكل مرجع "
             "للحصول على نصه الدقيق، ثم أعد كتابة كل واحد تمامًا كما أُعيد."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "أحتاج إلى كل واحد من المقاطع التالية من ترجمة "
             "$translation_name ($translation_id) للكتاب المقدس: "
             "$references. لا تكتب نص أي مقطع بنفسك. بدلاً من ذلك، اكتب لكل "
@@ -775,7 +877,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "get_passage uma vez para cada referência para obter seu texto "
             "exato e depois reproduza cada uma exatamente como retornada."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Preciso de cada uma das seguintes passagens da tradução "
             "$translation_name ($translation_id) da Bíblia: $references. "
             "Não escreva você mesmo o texto de nenhuma passagem. Em vez "
@@ -821,7 +923,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "کال کر کے اس کا درست متن حاصل کریں، پھر ہر ایک کو بالکل ویسا "
             "ہی نقل کریں جیسا واپس کیا گیا ہے۔"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "مجھے بائبل کے $translation_name ($translation_id) ترجمے سے "
             "درج ذیل میں سے ہر اقتباس چاہیے: $references۔ کسی بھی اقتباس کا "
             "متن خود نہ لکھیں۔ اس کے بجائے ہر اقتباس کے لیے اس کے اپنے "
@@ -866,7 +968,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "разу для каждой ссылки, чтобы получить её точный текст, затем "
             "воспроизведи каждый в точности так, как он возвращён."
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "Мне нужен каждый из следующих отрывков из перевода Библии "
             "$translation_name ($translation_id): $references. Не пиши "
             "текст отрывков сам. Вместо этого выведи для каждого отрывка "
@@ -911,7 +1013,7 @@ MULTI_PROMPTS: dict[str, dict[str, Template]] = {
             "টুল কল করে তার সঠিক পাঠ্য সংগ্রহ করুন, তারপর প্রতিটি যেমন "
             "ফেরত এসেছে ঠিক তেমনই পুনরুত্পাদন করুন।"
         ),
-        "output_buffer": Template(
+        "buffer_transform": Template(
             "আমার বাইবেলের $translation_name ($translation_id) অনুবাদ থেকে "
             "নিম্নলিখিত প্রতিটি অংশ প্রয়োজন: $references। কোনো অংশের "
             "পাঠ্য নিজে লিখবেন না। পরিবর্তে প্রতিটি অংশের জন্য তার নিজস্ব "
@@ -949,12 +1051,14 @@ def build_prompt(
     translation_name: str,
     translation_id: str,
     context: str = "",
+    description: str = "",
 ) -> str:
     return _templates(language, multi=False)[method].substitute(
         reference=reference,
         translation_name=translation_name,
         translation_id=translation_id,
         context=context,
+        description=description,
     )
 
 
@@ -969,7 +1073,7 @@ def build_multi_prompt(
     """Build a multi-reference prompt.
 
     ``contexts`` is a list of (reference, passage text) pairs used only by
-    the rag method. The output_buffer example shows the expected attributed
+    the rag method. The buffer_transform example shows the expected attributed
     placeholder block for the first requested reference.
     """
     context = "\n\n".join(

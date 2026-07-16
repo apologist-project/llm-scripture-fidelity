@@ -16,7 +16,7 @@ from scripture_fidelity.references import ReferenceError, parse_reference
 PLACEHOLDER_RE = re.compile(r"\{\{\s*QUOTE\s*:\s*([^{}]+?)\s*\}\}")
 
 
-def apply_output_buffer(
+def apply_buffer_transform(
     text: str, expected_ref: str, ground_truth: str
 ) -> tuple[str, bool]:
     """Replace {{QUOTE:<ref>}} placeholders whose reference matches the
@@ -49,7 +49,7 @@ def apply_output_buffer(
     return transformed, ok
 
 
-def apply_output_buffer_multi(
+def apply_buffer_transform_multi(
     text: str, expected: list[tuple[str, str]]
 ) -> tuple[str, bool]:
     """Replace {{QUOTE:<ref>}} placeholders for several expected references.
@@ -88,8 +88,8 @@ def apply_output_buffer_multi(
 
 
 @solver
-def output_buffer_transform(multi: bool = False) -> Solver:
-    """Post-generation transform phase for the output_buffer method."""
+def buffer_transform_solver(multi: bool = False) -> Solver:
+    """Post-generation transform phase for the buffer_transform method."""
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         raw = state.output.completion
@@ -100,14 +100,98 @@ def output_buffer_transform(multi: bool = False) -> Solver:
                     state.metadata["ground_truth_texts"],
                 )
             )
-            transformed, ok = apply_output_buffer_multi(raw, expected)
+            transformed, ok = apply_buffer_transform_multi(raw, expected)
         else:
-            transformed, ok = apply_output_buffer(
+            transformed, ok = apply_buffer_transform(
                 raw, state.metadata["reference"], state.target.text
             )
         state.output.completion = transformed
         state.store.set("raw_output", raw)
         state.store.set("placeholder_ok", ok)
+        return state
+
+    return solve
+
+
+async def apply_buffer_transform_selection(
+    text: str, expected_ref: str, translation: TranslationConfig, lookup
+) -> tuple[str, dict]:
+    """Apply the selection-scenario transform to a completion.
+
+    The model must have emitted exactly one {{QUOTE:<reference>}}
+    placeholder naming the reference it selected. The placeholder is looked
+    up via ``lookup(translation, parsed_reference)`` using the *selected*
+    reference — never ``expected_ref`` — so a wrong but valid selection is
+    replaced with the wrong passage's text, not the expected scenario text.
+
+    Returns (transformed_text, result) where result records the raw
+    selection, parse result, lookup fixture id, and each component outcome.
+    """
+    matches = list(PLACEHOLDER_RE.finditer(text or ""))
+    selected_raw = matches[0].group(1) if matches else ""
+
+    parsed = None
+    if selected_raw:
+        try:
+            parsed = parse_reference(selected_raw)
+        except ReferenceError:
+            parsed = None
+
+    transformed = text
+    lookup_ok = False
+    lookup_fixture = ""
+    replaced = False
+    if len(matches) == 1 and parsed is not None:
+        lookup_fixture = f"{translation.source_key}:{parsed.usfm()}"
+        try:
+            passage = await lookup(translation, parsed)
+        except Exception:
+            passage = None
+        if passage is not None:
+            lookup_ok = True
+            m = matches[0]
+            transformed = text[: m.start()] + passage.text + text[m.end() :]
+            replaced = True
+
+    selection_correct = False
+    if parsed is not None:
+        try:
+            selection_correct = parsed == parse_reference(expected_ref)
+        except ReferenceError:
+            selection_correct = False
+
+    result = {
+        "selected_reference_raw": selected_raw,
+        "selected_reference_parsed": parsed.usfm() if parsed else "",
+        "placeholder_count": len(matches),
+        "placeholder_ok": len(matches) == 1 and parsed is not None,
+        "selection_correct": selection_correct,
+        "lookup_ok": lookup_ok,
+        "lookup_fixture_id": lookup_fixture,
+        "replacement_ok": replaced,
+    }
+    return transformed, result
+
+
+@solver
+def buffer_transform_selection_solver(
+    translation: TranslationConfig, service: PassageService
+) -> Solver:
+    """Post-generation transform for the buffer_transform_selection method.
+
+    See apply_buffer_transform_selection: replacement uses the model's own
+    selected reference, and every component outcome is recorded in the
+    store."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        raw = state.output.completion
+        transformed, result = await apply_buffer_transform_selection(
+            raw, state.metadata["reference"], translation, service.get
+        )
+        state.output.completion = transformed
+        state.store.set("raw_output", raw)
+        for key, value in result.items():
+            state.store.set(key, value)
         return state
 
     return solve
@@ -188,6 +272,8 @@ def solver_chain(
     elif method == "web_search":
         chain.append(use_tools(search_web()))
     chain.append(generate())
-    if method == "output_buffer":
-        chain.append(output_buffer_transform(multi=multi))
+    if method == "buffer_transform":
+        chain.append(buffer_transform_solver(multi=multi))
+    elif method == "buffer_transform_selection":
+        chain.append(buffer_transform_selection_solver(translation, service))
     return chain

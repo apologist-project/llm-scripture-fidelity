@@ -1,11 +1,12 @@
 """Tests for quote extraction, normalization, and fidelity metrics."""
 
 from scripture_fidelity.scoring import (
+    analyze_final_output,
     compute_metrics,
     compute_multi_metrics,
     extract_quote,
     extract_quotes,
-    fail_fidelity,
+    final_output_exact,
     normalize,
     tool_coverage,
     tool_was_used,
@@ -99,16 +100,54 @@ def test_tool_was_used():
     assert tool_was_used([], "get_passage") is False
 
 
-def test_fail_fidelity_zeroes_scores():
-    m = compute_metrics(BSB_JOHN_3_16, BSB_JOHN_3_16, [BSB_JOHN_3_16])
-    m["tool_used"] = 0.0
-    fail_fidelity(m)
-    assert m["exact"] == 0.0
-    assert m["normalized"] == 0.0
-    assert m["similarity"] == 0.0
-    assert m["verse_coverage"] == 0.0
-    assert m["cer"] == 1.0
-    assert m["answered"] == 1.0  # answered is preserved
+def test_exact_span_with_commentary_fails_final_output_exact():
+    completion = f"Sure, here it is:\n<quote>{BSB_JOHN_3_16}</quote>"
+    quote = extract_quote(completion)
+    m = compute_metrics(quote, BSB_JOHN_3_16, [BSB_JOHN_3_16])
+    assert m["exact"] == 1.0  # quote_span_exact
+    assert final_output_exact(completion, BSB_JOHN_3_16) == 0.0
+
+
+def test_clean_single_block_passes_final_output_exact():
+    completion = f"<quote>{BSB_JOHN_3_16}</quote>"
+    assert final_output_exact(completion, BSB_JOHN_3_16) == 1.0
+
+
+def test_two_quote_blocks_fail_final_output_exact():
+    completion = (
+        f"<quote>{BSB_JOHN_3_16}</quote><quote>{BSB_JOHN_3_16}</quote>"
+    )
+    assert final_output_exact(completion, BSB_JOHN_3_16) == 0.0
+    structure = analyze_final_output(completion)
+    assert structure["quote_block_count"] == 2
+
+
+def test_missing_quote_tags_structure():
+    structure = analyze_final_output(BSB_JOHN_3_16)
+    assert structure["quote_block_count"] == 0
+    assert structure["has_extraneous_text"] is True
+    assert final_output_exact(BSB_JOHN_3_16, BSB_JOHN_3_16) == 0.0
+
+
+def test_malformed_unclosed_quote_tag_structure():
+    completion = f"<quote>{BSB_JOHN_3_16}"
+    structure = analyze_final_output(completion)
+    assert structure["quote_block_count"] == 0
+    assert structure["has_extraneous_text"] is True
+
+
+def test_nested_quote_tags_fail_final_output_exact():
+    completion = f"<quote><quote>{BSB_JOHN_3_16}</quote></quote>"
+    assert final_output_exact(completion, BSB_JOHN_3_16) == 0.0
+
+
+def test_extraneous_text_detected():
+    structure = analyze_final_output(
+        f"Here you go: <quote>{BSB_JOHN_3_16}</quote>"
+    )
+    assert structure["has_extraneous_text"] is True
+    structure = analyze_final_output(f"<quote>{BSB_JOHN_3_16}</quote>\n")
+    assert structure["has_extraneous_text"] is False
 
 
 def test_extract_quotes_attributed():

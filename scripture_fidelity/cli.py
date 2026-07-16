@@ -48,6 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true",
         help="Print the permutation grid and exit without calling any model",
     )
+    run.add_argument(
+        "--confirm-large-run", action="store_true",
+        help="Authorize a run whose planned call volume exceeds the threshold",
+    )
     for flag, help_text in [
         ("--methods", "Comma-separated subset of METHODS"),
         ("--models", "Comma-separated subset of MODELS (provider/model)"),
@@ -136,16 +140,23 @@ def _apply_overrides(config, args):
 def _print_grid(config, iterations: int) -> None:
     from rich.table import Table
 
+    from scripture_fidelity.runner import call_accounting
+
     table = Table(title="Study grid")
     table.add_column("Variant")
     table.add_column("Count", justify="right")
     table.add_column("Values")
+    pairs = config.variant_pairs()
     for name, values in [
         ("references", [r.ref for r in config.references]),
         ("set sizes", [str(s) for s in config.set_sizes]),
         ("methods", config.methods),
         ("translations", [t.id for t in config.translations]),
         ("languages", config.languages),
+        (
+            f"language pairs ({config.language_pairing_mode})",
+            [f"{lang}\u2192{t.id}" for lang, t in pairs],
+        ),
         ("models", [m.inspect_model for m in config.models]),
         ("temperatures", [f"{t:g}" for t in config.temperatures]),
     ]:
@@ -156,16 +167,28 @@ def _print_grid(config, iterations: int) -> None:
     trials = permutations * iterations
     tasks = (
         len(config.methods)
-        * len(config.translations)
-        * len(config.languages)
+        * len(pairs)
         * len(config.temperatures)
         * len(config.set_sizes)
     )
     console.print(
+        f"Protocol role: [bold]{config.protocol_role}[/bold] | "
         f"Inspect tasks: [bold]{tasks}[/bold] "
         f"(x {len(config.models)} models) | "
         f"permutations: [bold]{permutations}[/bold] | "
         f"trials (x{iterations} iterations): [bold]{trials}[/bold]"
+    )
+
+    accounting = call_accounting(config, iterations)
+    console.print(
+        f"Planned requests: [bold]{accounting['planned_requests']}[/bold] "
+        f"({accounting['samples_per_epoch']} samples x "
+        f"{accounting['epochs']} epochs) | "
+        f"observations per reference: "
+        f"[bold]{accounting['observations_per_reference']}[/bold] | "
+        f"retry upper bound: [bold]{accounting['max_generation_attempts']}[/bold] "
+        f"attempts (x{1 + accounting['retry_on_error']} per sample, up to "
+        f"{accounting['max_http_retries_per_attempt']} HTTP retries each)"
     )
 
 
@@ -200,6 +223,22 @@ def _cmd_run(args) -> int:
         console.print("[yellow]Dry run: no model calls made.[/yellow]")
         return 0
 
+    from scripture_fidelity.runner import CALL_VOLUME_THRESHOLD, call_accounting
+
+    accounting = call_accounting(config, args.iterations)
+    if (
+        accounting["max_generation_attempts"] > CALL_VOLUME_THRESHOLD
+        and not args.confirm_large_run
+    ):
+        console.print(
+            f"[red]Run blocked:[/red] planned call volume "
+            f"({accounting['max_generation_attempts']} generation attempts "
+            f"including retries) exceeds the threshold of "
+            f"{CALL_VOLUME_THRESHOLD}. Review the grid with --dry-run and "
+            f"re-run with --confirm-large-run to authorize."
+        )
+        return 2
+
     import os
 
     if "web_search" in config.methods and not os.environ.get("PARALLEL_API_KEY"):
@@ -228,6 +267,23 @@ def _cmd_report(args) -> int:
     if not run_dir.exists():
         console.print(f"[red]No such directory: {run_dir}[/red]")
         return 2
+    # Prefer the normalized export package when present so reports are
+    # recomputed from the auditable rows rather than Inspect internals.
+    export_dir = run_dir / "export"
+    if (export_dir / "trials.jsonl").is_file():
+        from scripture_fidelity.report.cli_report import print_report
+        from scripture_fidelity.report.data import rows_from_export
+        from scripture_fidelity.report.html_report import write_html_report
+
+        rows = rows_from_export(export_dir)
+        if not rows:
+            console.print(f"[red]No trial rows found in {export_dir}[/red]")
+            return 1
+        print_report(rows, console)
+        path = run_dir / "results.html"
+        write_html_report(rows, path)
+        console.print(f"HTML report written to [bold]{path}[/bold]")
+        return 0
     log_dir = run_dir / "logs" if (run_dir / "logs").is_dir() else run_dir
     return _emit_reports(log_dir)
 
