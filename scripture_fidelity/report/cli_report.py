@@ -87,7 +87,7 @@ def print_report(rows: list[TrialRow], console: Console | None = None) -> None:
     # placeholder_ok only applies to buffer_transform trials
     buffer_rows = [r for r in rows if r.method == "buffer_transform"]
     if buffer_rows:
-        table = Table(title="Output buffer: placeholder correctness by model")
+        table = Table(title="Buffer transform: placeholder correctness by model")
         table.add_column("Model")
         table.add_column("PlcOK", justify="right")
         table.add_column("n", justify="right", style="dim")

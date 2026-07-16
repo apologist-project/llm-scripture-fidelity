@@ -1,4 +1,4 @@
-"""Tests for the output-buffer placeholder transform."""
+"""Tests for the buffer-transform placeholder transform."""
 
 import asyncio
 

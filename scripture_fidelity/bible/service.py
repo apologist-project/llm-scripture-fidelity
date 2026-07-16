@@ -35,7 +35,7 @@ class PassageService:
     """Fetches passages for configured translations, with disk caching.
 
     The same fetched text serves as RAG context, tool-call output,
-    output-buffer replacement source, and the scoring ground truth.
+    buffer-transform replacement source, and the scoring ground truth.
     """
 
     def __init__(self, cache_dir: Path | str = DEFAULT_CACHE_DIR):

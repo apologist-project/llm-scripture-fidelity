@@ -93,7 +93,7 @@ def build_sections(rows: list[TrialRow]) -> list[dict]:
     if buffer_rows:
         sections.append(
             {
-                "title": "Output buffer: placeholder correctness by model",
+                "title": "Buffer transform: placeholder correctness by model",
                 "headers": ["Model", _METRIC_LABELS["placeholder_ok"], "n"],
                 "rows": [
                     [

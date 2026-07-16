@@ -190,7 +190,7 @@ With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages 
 
 ## Caching
 
-Ground-truth passages are cached on disk (`.cache/passages` by default), so repeated runs do not re-hit the Bible APIs. The same fetched text serves as the RAG context, the `get_passage` tool output, the output-buffer replacement source, and the scoring ground truth — guaranteeing a consistent baseline across methods. Delete the cache directory to force re-fetching.
+Ground-truth passages are cached on disk (`.cache/passages` by default), so repeated runs do not re-hit the Bible APIs. The same fetched text serves as the RAG context, the `get_passage` tool output, the buffer-transform replacement source, and the scoring ground truth — guaranteeing a consistent baseline across methods. Delete the cache directory to force re-fetching.
 
 ## Testing
 
@@ -198,7 +198,7 @@ Ground-truth passages are cached on disk (`.cache/passages` by default), so repe
 pytest
 ```
 
-The suite covers reference parsing, scoring/normalization, the output-buffer transform, and configuration validation. For an end-to-end pipeline check without spending tokens, use the mock provider:
+The suite covers reference parsing, scoring/normalization, the buffer-transform, and configuration validation. For an end-to-end pipeline check without spending tokens, use the mock provider:
 
 ```bash
 scripture-fidelity run --models mockllm/model --translations BSB \
