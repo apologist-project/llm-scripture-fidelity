@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -148,43 +149,43 @@ def build_tasks(
     ]
 
 
-def run_study(
-    config: StudyConfig,
-    run_dir: Path,
-    epochs: int = 1,
-    max_connections: int = 10,
-    max_tasks: int = 4,
-    display: str = "rich",
-    cache_dir: str | Path | None = None,
-) -> Path:
-    """Execute the full study grid; returns the Inspect log directory."""
-    from inspect_ai import eval as inspect_eval
-
+def _prefetch(
+    config: StudyConfig, cache_dir: str | Path | None
+) -> tuple[dict[str, dict[str, Passage]], PassageService]:
+    """Raise the fd limit and fetch all ground truth for the grid."""
     raise_file_descriptor_limit()
-
     service = (
         PassageService(cache_dir) if cache_dir is not None else PassageService()
     )
     passages = asyncio.run(prefetch_passages(config, service))
+    return passages, service
 
-    run_dir.mkdir(parents=True, exist_ok=True)
-    run_record = config.to_dict()
-    run_record["call_accounting"] = call_accounting(config, epochs)
-    run_record["generation_controls"] = GENERATION_CONTROLS
-    (run_dir / "config.json").write_text(
-        json.dumps(run_record, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+
+def _run_eval(
+    config: StudyConfig,
+    passages: dict[str, dict[str, Passage]],
+    service: PassageService,
+    log_dir: str | Path,
+    epochs: int,
+    max_connections: int,
+    max_tasks: int,
+    display: str,
+) -> None:
+    """Execute the Inspect eval for the grid, writing logs to ``log_dir``.
+
+    Inspect has no in-memory log mode; every caller must supply a writable
+    ``log_dir`` (a run directory for the CLI, a temp dir for the API).
+    """
+    from inspect_ai import eval as inspect_eval
+    from inspect_ai.model import get_model
 
     tasks = build_tasks(config, passages, service)
     # Build model objects rather than passing bare strings so provider-specific
     # model args (e.g. Together's stream=true, required by some models) apply
     # per model without affecting the others.
-    from inspect_ai.model import get_model
-
     models = [
         get_model(m.inspect_model, **m.model_args) for m in config.models
     ]
-    log_dir = run_dir / "logs"
 
     inspect_eval(
         tasks=tasks,
@@ -208,6 +209,38 @@ def run_study(
         max_retries=MAX_HTTP_RETRIES,
     )
 
+
+def run_study(
+    config: StudyConfig,
+    run_dir: Path,
+    epochs: int = 1,
+    max_connections: int = 10,
+    max_tasks: int = 4,
+    display: str = "rich",
+    cache_dir: str | Path | None = None,
+) -> Path:
+    """Execute the full study grid; returns the Inspect log directory.
+
+    Persists the run to ``run_dir`` (config.json, logs/, export/). The API
+    entry point (:func:`run_study_in_memory`) shares the eval core but writes
+    nothing under ``run_dir``.
+    """
+    passages, service = _prefetch(config, cache_dir)
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_record = config.to_dict()
+    run_record["call_accounting"] = call_accounting(config, epochs)
+    run_record["generation_controls"] = GENERATION_CONTROLS
+    (run_dir / "config.json").write_text(
+        json.dumps(run_record, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    log_dir = run_dir / "logs"
+    _run_eval(
+        config, passages, service, log_dir, epochs,
+        max_connections, max_tasks, display,
+    )
+
     from scripture_fidelity.export import export_package
 
     export_package(
@@ -219,3 +252,101 @@ def run_study(
         run_id=run_dir.name,
     )
     return log_dir
+
+
+def build_report(trial_rows: list[dict]) -> dict:
+    """Recompute the report the CLI prints, as plain JSON-able data.
+
+    Mirrors the CLI report: a per-permutation detail table plus mean metrics
+    aggregated by each dimension that takes more than one value. Computed from
+    the same trial rows the export writes, so the API's report matches the CLI.
+    """
+    from scripture_fidelity.report.data import (
+        DIMENSIONS,
+        REPORT_METRICS,
+        aggregate,
+        rows_from_trial_dicts,
+    )
+
+    rows = rows_from_trial_dicts(trial_rows)
+
+    def _metrics(means: dict) -> dict:
+        return {m: means[m] for m in REPORT_METRICS if m in means}
+
+    detail_dims = tuple(
+        d for d in DIMENSIONS if d != "language_match"
+    )
+    detail = [
+        {
+            "key": dict(zip(detail_dims, key)),
+            "metrics": _metrics(means),
+            "count": count,
+        }
+        for key, means, count in aggregate(rows, detail_dims)
+    ]
+
+    aggregates: dict[str, list] = {}
+    for dim in DIMENSIONS:
+        if len({getattr(r, dim) for r in rows}) > 1:
+            aggregates[f"by_{dim}"] = [
+                {"key": key[0], "metrics": _metrics(means), "count": count}
+                for key, means, count in aggregate(rows, (dim,))
+            ]
+
+    return {
+        "metrics": REPORT_METRICS,
+        "detail": detail,
+        "aggregates": aggregates,
+    }
+
+
+def run_study_in_memory(
+    config: StudyConfig,
+    epochs: int = 1,
+    max_connections: int = 10,
+    max_tasks: int = 4,
+    cache_dir: str | Path | None = None,
+) -> dict:
+    """Execute the grid and return the full result package as plain data.
+
+    Runs the same eval as :func:`run_study` but writes nothing to a persistent
+    results directory: Inspect logs go to a temporary directory that is deleted
+    before returning. The returned dict carries the same artifacts the CLI
+    writes to ``export/`` (manifest, trials, source fixtures, method configs,
+    scoring config) plus the recomputed report, so an API client receives
+    exactly the data the command line produces.
+    """
+    import tempfile
+
+    from scripture_fidelity.export import (
+        build_method_configs,
+        build_run_manifest,
+        build_scoring_config,
+        build_source_fixtures,
+        build_trial_rows,
+    )
+
+    passages, service = _prefetch(config, cache_dir)
+
+    run_id = new_run_id()
+    tmp_dir = Path(tempfile.mkdtemp(prefix="sf-run-"))
+    try:
+        log_dir = tmp_dir / "logs"
+        _run_eval(
+            config, passages, service, log_dir, epochs,
+            max_connections, max_tasks, display="none",
+        )
+        trial_rows = build_trial_rows(log_dir)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    manifest = build_run_manifest(config, trial_rows, epochs, run_id)
+    return {
+        "run_id": run_id,
+        "manifest": manifest,
+        "trials": trial_rows,
+        "source_fixtures": build_source_fixtures(config, passages),
+        "method_configs": build_method_configs(config),
+        "scoring_config": build_scoring_config(),
+        "report": build_report(trial_rows),
+    }

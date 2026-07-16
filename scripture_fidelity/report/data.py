@@ -96,21 +96,13 @@ def load_rows(log_dir: str | Path) -> list[TrialRow]:
     return rows
 
 
-def rows_from_export(export_dir: str | Path) -> list[TrialRow]:
-    """Rebuild trial rows from an exported result package (trials.jsonl),
-    so reports can be recomputed from the normalized export instead of
-    Inspect internals. Per-reference rows from one multi-reference request
-    are aggregated back into a single report row keyed by request_id."""
-    import json
-
-    path = Path(export_dir) / "trials.jsonl"
+def rows_from_trial_dicts(trial_rows: list[dict]) -> list[TrialRow]:
+    """Rebuild report rows from in-memory trial-row dicts (the same records
+    written to trials.jsonl). Per-reference rows from one multi-reference
+    request are aggregated back into a single report row keyed by request_id."""
     by_request: dict[tuple, list[dict]] = {}
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            r = json.loads(line)
-            by_request.setdefault((r["request_id"],), []).append(r)
+    for r in trial_rows:
+        by_request.setdefault((r["request_id"],), []).append(r)
 
     rows: list[TrialRow] = []
     for members in by_request.values():
@@ -141,6 +133,21 @@ def rows_from_export(export_dir: str | Path) -> list[TrialRow]:
             )
         )
     return rows
+
+
+def rows_from_export(export_dir: str | Path) -> list[TrialRow]:
+    """Rebuild trial rows from an exported result package (trials.jsonl),
+    so reports can be recomputed from the normalized export instead of
+    Inspect internals."""
+    import json
+
+    path = Path(export_dir) / "trials.jsonl"
+    trial_rows: list[dict] = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                trial_rows.append(json.loads(line))
+    return rows_from_trial_dicts(trial_rows)
 
 
 def aggregate(
