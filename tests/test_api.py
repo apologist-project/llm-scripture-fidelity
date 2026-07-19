@@ -176,6 +176,8 @@ def test_run_returns_full_package(client):
     assert manifest["counts"]["trial_rows"] == len(body["trials"])
     assert body["trials"][0]["reference"] == "John 3:16"
     assert body["trials"][0]["fixture_id"]
+    assert body["trials"][0]["metrics"]["tool_invoked"] == 0.0
+    assert body["trials"][0]["metrics"]["tool_used"] == 1.0
     assert body["source_fixtures"][0]["text"] == TRUTH
     assert body["method_configs"]["unassisted"] == {
         "tool": None, "transform": None

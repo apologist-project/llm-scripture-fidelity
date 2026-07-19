@@ -176,6 +176,7 @@ METRIC_KEYS = [
     "verse_coverage",
     "answered",
     "placeholder_ok",
+    "tool_invoked",
     "tool_used",
     "quote_span_exact",
     "final_output_exact",
@@ -298,6 +299,8 @@ def quotation_fidelity():
       markup — it never selects among multiple blocks);
     - ``extraneous_text`` / ``quote_block_count`` describe the structure of
       the final completion;
+    - ``tool_invoked`` records observed assigned-tool invocation (or
+      per-reference coverage) and is 0.0 for methods without an assigned tool;
     - ``placeholder_ok`` (buffer_transform) and ``tool_used``
       (tool_call/web_search) report method compliance and are fixed at 1.0
       where not applicable; ``method_adherence`` is their conjunction;
@@ -408,22 +411,30 @@ def quotation_fidelity():
                 metrics["replacement_ok"] = 1.0
             expected_tool = METHOD_TOOLS.get(method)
             if expected_tool is None:
+                metrics["tool_invoked"] = 0.0
                 metrics["tool_used"] = 1.0
             elif multi and method == "tool_call":
                 coverage_by_ref = tool_coverage_by_reference(
                     state.messages, expected_tool, references
                 )
-                metrics["tool_used"] = round(
+                observed_tool_coverage = round(
                     sum(coverage_by_ref.values()) / len(references), 4
                 )
+                metrics["tool_invoked"] = observed_tool_coverage
+                metrics["tool_used"] = observed_tool_coverage
                 for item in per_reference:
+                    item["metrics"]["tool_invoked"] = coverage_by_ref[
+                        item["reference"]
+                    ]
                     item["metrics"]["tool_used"] = coverage_by_ref[
                         item["reference"]
                     ]
             else:
-                metrics["tool_used"] = (
+                observed_tool_invocation = (
                     1.0 if tool_was_used(state.messages, expected_tool) else 0.0
                 )
+                metrics["tool_invoked"] = observed_tool_invocation
+                metrics["tool_used"] = observed_tool_invocation
 
             metrics["method_adherence"] = (
                 1.0
