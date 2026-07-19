@@ -16,6 +16,12 @@ from scripture_fidelity.references import ReferenceError, parse_reference
 PLACEHOLDER_RE = re.compile(r"\{\{\s*QUOTE\s*:\s*([^{}]+?)\s*\}\}")
 
 
+def literal_system_template(value: str) -> str:
+    """Escape literal braces before Inspect applies ``str.format``."""
+
+    return value.replace("{", "{{").replace("}", "}}")
+
+
 def apply_buffer_transform(
     text: str, expected_ref: str, ground_truth: str
 ) -> tuple[str, bool]:
@@ -267,7 +273,11 @@ def solver_chain(
     """Build the solver chain for one study method. ``multi`` selects the
     multi-reference system prompt and placeholder transform."""
     chain: list[Solver] = [
-        system_message(system_prompt(language, method=method, multi=multi))
+        system_message(
+            literal_system_template(
+                system_prompt(language, method=method, multi=multi)
+            )
+        )
     ]
     if method == "tool_call":
         chain.append(use_tools(get_passage(translation, service)))

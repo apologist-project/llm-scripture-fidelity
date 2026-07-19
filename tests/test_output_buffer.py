@@ -99,10 +99,17 @@ from dataclasses import dataclass
 
 from scripture_fidelity.config import TranslationConfig
 from scripture_fidelity.references import parse_reference
+from scripture_fidelity.solvers import literal_system_template
 
 TRANSLATION = TranslationConfig(
     id="BSB", language="eng", api="ao_lab", api_bible_id="BSB"
 )
+
+
+def test_literal_system_template_preserves_double_brace_grammar_after_format():
+    prompt = "Return <quote>{{QUOTE:<reference>}}</quote>."
+
+    assert literal_system_template(prompt).format() == prompt
 
 # Fixture texts keyed by canonical USFM — the lookup only knows these
 FIXTURES = {
