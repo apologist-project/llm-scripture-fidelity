@@ -25,11 +25,7 @@ def _model_input(
     prompt_override: str,
     source_document_override: str,
 ) -> tuple[str, str]:
-    """Return the caller prompt and effective model input.
-
-    Source-supplied research requests keep the caller's user request intact and
-    add the authoritative document through a versioned harness wrapper.
-    """
+    """Keep the caller request separate from source-supplied context."""
     caller_prompt = prompt_override or generated_prompt
     if method == "rag" and source_document_override:
         return caller_prompt, (
@@ -70,16 +66,16 @@ def build_sample(
     request_context: dict | None = None,
     source_document_override: str = "",
 ) -> Sample:
-    canonical_english_rag = method == "rag" and language == "eng"
+    wrap_source_separately = method == "rag" and language == "eng"
     generated_prompt = build_prompt(
         language=language,
-        method="unassisted" if canonical_english_rag else method,
+        method="unassisted" if wrap_source_separately else method,
         reference=ref.ref,
         translation_name=translation.display_name,
         translation_id=translation.id,
         context=(
             source_document_override or passage.text
-            if method == "rag" and not canonical_english_rag
+            if method == "rag" and not wrap_source_separately
             else ""
         ),
         description=ref.description,
@@ -90,7 +86,7 @@ def build_sample(
         prompt_override=prompt_override,
         source_document_override=(
             source_document_override or passage.text
-            if canonical_english_rag
+            if wrap_source_separately
             else source_document_override
         ),
     )

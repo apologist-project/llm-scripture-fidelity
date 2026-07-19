@@ -11,7 +11,6 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 SYSTEM_SCHEMA_VERSION = "2"
-PROMPT_TEMPLATE_VERSION = "scripture-fidelity-prompts-v4"
 
 
 def _repo_root() -> Path:
@@ -67,7 +66,6 @@ def build_identity() -> dict:
         "git_dirty": dirty,
         "dependency_lock": lock_path.name if lock_path.is_file() else None,
         "dependency_lock_sha256": _file_sha256(lock_path),
-        "prompt_template_version": PROMPT_TEMPLATE_VERSION,
     }
 
 

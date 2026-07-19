@@ -134,7 +134,7 @@ class RunRequest(StrictModel):
         if self.prompt and self.language != "eng":
             raise ValueError(
                 "caller-supplied prompts currently support English only; "
-                "omit prompt to use the versioned localized templates"
+                "omit prompt to use the committed localized templates"
             )
         return self
 

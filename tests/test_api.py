@@ -121,7 +121,6 @@ def test_version_needs_no_auth_and_reports_build(client):
     assert body["system_version"]
     assert body["git_commit"]
     assert body["schema_version"] == "2"
-    assert body["prompt_template_version"] == "scripture-fidelity-prompts-v4"
     assert body["supported_conditions"]["source_supplied_quote"] == "rag"
     assert "ao_lab" in body["supported_source_providers"]
 

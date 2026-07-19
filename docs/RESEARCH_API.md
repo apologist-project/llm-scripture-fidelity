@@ -12,10 +12,12 @@ leaderboard, product endorsement, or permission to release restricted text.
 ## Version and discovery
 
 `GET /version` requires no authentication and returns the running commit,
-dependency-lock hash, schema version, prompt-template version, and supported
-condition-to-method mappings. Capture this response once before and once after
-each run batch. A changed identity means the batch spans multiple system
-versions and must be analyzed separately or rerun.
+dependency-lock hash, schema version, and supported condition-to-method
+mappings. The commit identifies the exact prompt and harness implementation;
+trial-level hashes identify the submitted request and effective model input.
+Capture the version response once before and once after each run batch. A
+changed identity means the batch spans multiple system versions and must be
+analyzed separately or rerun.
 
 Runtime OpenAPI is available at `GET /openapi.json`. Stable request and response
 schemas are committed under `schemas/` and regenerated with:
