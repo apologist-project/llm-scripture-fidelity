@@ -6,12 +6,12 @@ import asyncio
 import itertools
 import json
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scripture_fidelity.bible.base import Passage
 from scripture_fidelity.bible.service import PassageService
-from scripture_fidelity.config import StudyConfig, TranslationConfig
+from scripture_fidelity.config import ConfigError, StudyConfig, TranslationConfig, fixture_id
 from scripture_fidelity.references import parse_reference
 from scripture_fidelity.task import build_task
 
@@ -127,6 +127,13 @@ def build_tasks(
     """One Inspect task per (method, (language, translation) pair,
     temperature, set size). Pairs come from the declared pairing mode, so
     crossed prompts are only generated when explicitly configured."""
+    request_context = {
+        "request_id": config.request_id,
+        "scenario_id": config.scenario_id,
+        "protocol_version": config.protocol_version,
+        "repetition": config.repetition,
+        "source_fixture_id": config.source_fixture_id,
+    }
     return [
         build_task(
             method=method,
@@ -139,6 +146,9 @@ def build_tasks(
             set_size=set_size,
             pairing_mode=config.language_pairing_mode,
             protocol_role=config.protocol_role,
+            prompt_override=config.prompt_override,
+            request_context=request_context,
+            source_document_override=config.source_document_override,
         )
         for method, (language, translation), temperature, set_size in itertools.product(
             config.methods,
@@ -153,12 +163,30 @@ def _prefetch(
     config: StudyConfig, cache_dir: str | Path | None
 ) -> tuple[dict[str, dict[str, Passage]], PassageService]:
     """Raise the fd limit and fetch all ground truth for the grid."""
+    validate_source_fixture(config)
     raise_file_descriptor_limit()
     service = (
         PassageService(cache_dir) if cache_dir is not None else PassageService()
     )
     passages = asyncio.run(prefetch_passages(config, service))
     return passages, service
+
+
+def validate_source_fixture(config: StudyConfig) -> None:
+    """Reject a caller-supplied fixture identity before any provider call."""
+    if config.source_fixture_id:
+        if len(config.references) != 1 or len(config.variant_pairs()) != 1:
+            raise ConfigError(
+                "source_fixture_id verification requires exactly one reference "
+                "and one language/translation pair"
+            )
+        _, translation = config.variant_pairs()[0]
+        actual = fixture_id(translation, config.references[0].ref)
+        if actual != config.source_fixture_id:
+            raise ConfigError(
+                f"source_fixture_id mismatch: requested {config.source_fixture_id!r}, "
+                f"resolved {actual!r}"
+            )
 
 
 def _run_eval(
@@ -225,6 +253,7 @@ def run_study(
     entry point (:func:`run_study_in_memory`) shares the eval core but writes
     nothing under ``run_dir``.
     """
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     passages, service = _prefetch(config, cache_dir)
 
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -243,6 +272,7 @@ def run_study(
 
     from scripture_fidelity.export import export_package
 
+    ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     export_package(
         config,
         passages,
@@ -250,6 +280,8 @@ def run_study(
         run_dir / "export",
         epochs=epochs,
         run_id=run_dir.name,
+        started_at=started_at,
+        ended_at=ended_at,
     )
     return log_dir
 
@@ -326,21 +358,30 @@ def run_study_in_memory(
         build_trial_rows,
     )
 
-    passages, service = _prefetch(config, cache_dir)
-
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     run_id = new_run_id()
     tmp_dir = Path(tempfile.mkdtemp(prefix="sf-run-"))
     try:
+        ephemeral_cache = cache_dir or (tmp_dir / "passage-cache")
+        passages, service = _prefetch(config, ephemeral_cache)
         log_dir = tmp_dir / "logs"
         _run_eval(
             config, passages, service, log_dir, epochs,
             max_connections, max_tasks, display="none",
         )
         trial_rows = build_trial_rows(log_dir)
+        ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    manifest = build_run_manifest(config, trial_rows, epochs, run_id)
+    manifest = build_run_manifest(
+        config,
+        trial_rows,
+        epochs,
+        run_id,
+        started_at=started_at,
+        ended_at=ended_at,
+    )
     return {
         "run_id": run_id,
         "manifest": manifest,

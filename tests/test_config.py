@@ -60,6 +60,33 @@ def test_together_model_enables_streaming(monkeypatch):
     assert openai.model_args == {}
 
 
+def test_model_can_require_provider_default_temperature(monkeypatch):
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "openai", "model": "no-temperature", '
+            '"supports_temperature": false}]'
+        ),
+        TEMPERATURES="[null]",
+    )
+    config = load_config()
+    assert config.temperatures == [None]
+    assert config.models[0].supports_temperature is False
+
+
+def test_temperature_is_rejected_for_incompatible_model(monkeypatch):
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "openai", "model": "no-temperature", '
+            '"supports_temperature": false}]'
+        ),
+        TEMPERATURES="[0.0]",
+    )
+    with pytest.raises(ConfigError, match="supports_temperature=false"):
+        load_config()
+
+
 def test_set_sizes_config(monkeypatch):
     set_env(monkeypatch, REFERENCE_SET_SIZES="[1, 2]")
     config = load_config()
@@ -304,13 +331,17 @@ def test_translation_rights_and_verification(monkeypatch):
         TRANSLATIONS=(
             '[{"id": "NIV", "language": "eng", "api": "api_bible",'
             ' "api_bible_id": "x", "rights": "restricted",'
-            ' "verification": "hash_only"}]'
+            ' "verification": "hash_only", "edition": "2011",'
+            ' "license_basis": "licensed API", "public_release": false}]'
         ),
         LANGUAGE_PAIRS='[["eng", "NIV"]]',
     )
     config = load_config()
     assert config.translations[0].rights == "restricted"
     assert config.translations[0].verification == "hash_only"
+    assert config.translations[0].edition == "2011"
+    assert config.translations[0].license_basis == "licensed API"
+    assert config.translations[0].public_release is False
 
 
 def test_translation_invalid_rights(monkeypatch):
@@ -341,9 +372,25 @@ def test_confirmatory_rejects_exploratory_dimensions(monkeypatch):
 
 
 def test_confirmatory_accepts_single_valued_grid(monkeypatch):
-    set_env(monkeypatch, PROTOCOL_ROLE="confirmatory", TEMPERATURES="[0.0]")
+    set_env(
+        monkeypatch,
+        PROTOCOL_ROLE="confirmatory",
+        TEMPERATURES="[0.0]",
+        TRANSLATIONS=(
+            '[{"id": "BSB", "name": "Berean Standard Bible", '
+            '"language": "eng", "api": "ao_lab", "api_bible_id": "BSB", '
+            '"rights": "open", "edition": "2025", '
+            '"license_basis": "provider terms"}]'
+        ),
+    )
     config = load_config()
     assert config.protocol_role == "confirmatory"
+
+
+def test_confirmatory_requires_source_provenance(monkeypatch):
+    set_env(monkeypatch, PROTOCOL_ROLE="confirmatory", TEMPERATURES="[0.0]")
+    with pytest.raises(ConfigError, match="rights, edition, and license_basis"):
+        load_config()
 
 
 def test_call_accounting(monkeypatch):

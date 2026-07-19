@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -54,6 +55,9 @@ class TranslationConfig:
     name: str = ""
     rights: str = "unknown"
     verification: str = ""
+    edition: str = ""
+    license_basis: str = ""
+    public_release: bool = False
 
     @property
     def display_name(self) -> str:
@@ -78,6 +82,7 @@ def fixture_id(translation: TranslationConfig, ref: str) -> str:
 class ModelConfig:
     provider: str
     model: str
+    supports_temperature: bool = True
 
     @property
     def inspect_model(self) -> str:
@@ -98,11 +103,18 @@ class StudyConfig:
     translations: list[TranslationConfig] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     models: list[ModelConfig] = field(default_factory=list)
-    temperatures: list[float] = field(default_factory=list)
+    temperatures: list[float | None] = field(default_factory=list)
     set_sizes: list[int] = field(default_factory=lambda: [1])
     language_pairing_mode: str = "matched"
     language_pairs: list[tuple[str, str]] = field(default_factory=list)
     protocol_role: str = "diagnostic"
+    request_id: str = ""
+    scenario_id: str = ""
+    protocol_version: str = ""
+    repetition: int = 1
+    prompt_override: str = ""
+    source_fixture_id: str = ""
+    source_document_override: str = ""
 
     def variant_pairs(self) -> list[tuple[str, TranslationConfig]]:
         """The (prompt_language, translation) pairs this study will run.
@@ -173,6 +185,27 @@ class StudyConfig:
             "protocol_role": self.protocol_role,
             "models": [vars(m) for m in self.models],
             "temperatures": list(self.temperatures),
+            "request_context": {
+                "request_id": self.request_id or None,
+                "scenario_id": self.scenario_id or None,
+                "protocol_version": self.protocol_version or None,
+                "repetition": self.repetition,
+                "prompt_supplied": bool(self.prompt_override),
+                "prompt_sha256": (
+                    hashlib.sha256(self.prompt_override.encode("utf-8")).hexdigest()
+                    if self.prompt_override
+                    else None
+                ),
+                "source_fixture_id": self.source_fixture_id or None,
+                "source_document_supplied": bool(self.source_document_override),
+                "source_document_sha256": (
+                    hashlib.sha256(
+                        self.source_document_override.encode("utf-8")
+                    ).hexdigest()
+                    if self.source_document_override
+                    else None
+                ),
+            },
         }
 
     @classmethod
@@ -185,11 +218,23 @@ class StudyConfig:
             ],
             languages=list(data.get("languages", [])),
             models=[ModelConfig(**m) for m in data.get("models", [])],
-            temperatures=[float(t) for t in data.get("temperatures", [])],
+            temperatures=[
+                None if t is None else float(t)
+                for t in data.get("temperatures", [])
+            ],
             set_sizes=list(data.get("set_sizes", [1])),
             language_pairing_mode=data.get("language_pairing_mode", "matched"),
             language_pairs=[tuple(p) for p in data.get("language_pairs", [])],
             protocol_role=data.get("protocol_role", "diagnostic"),
+            request_id=data.get("request_context", {}).get("request_id") or "",
+            scenario_id=data.get("request_context", {}).get("scenario_id") or "",
+            protocol_version=(
+                data.get("request_context", {}).get("protocol_version") or ""
+            ),
+            repetition=int(data.get("request_context", {}).get("repetition", 1)),
+            source_fixture_id=(
+                data.get("request_context", {}).get("source_fixture_id") or ""
+            ),
         )
 
 
@@ -260,6 +305,9 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 name=item.get("name", ""),
                 rights=rights,
                 verification=item.get("verification", ""),
+                edition=item.get("edition", ""),
+                license_basis=item.get("license_basis", ""),
+                public_release=bool(item.get("public_release", False)),
             )
         )
 
@@ -284,9 +332,30 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 f"Unknown model provider {item['provider']!r} "
                 f"(expected one of {VALID_PROVIDERS})"
             )
-        models.append(ModelConfig(provider=item["provider"], model=item["model"]))
+        supports_temperature = item.get("supports_temperature", True)
+        if not isinstance(supports_temperature, bool):
+            raise ConfigError(
+                "MODELS supports_temperature must be true or false: "
+                f"{supports_temperature!r}"
+            )
+        models.append(
+            ModelConfig(
+                provider=item["provider"],
+                model=item["model"],
+                supports_temperature=supports_temperature,
+            )
+        )
 
-    temperatures = [float(t) for t in _load_json_env("TEMPERATURES")]
+    temperatures = [
+        None if t is None else float(t)
+        for t in _load_json_env("TEMPERATURES")
+    ]
+    if any(not model.supports_temperature for model in models) and temperatures != [None]:
+        unsupported = [m.inspect_model for m in models if not m.supports_temperature]
+        raise ConfigError(
+            "Models declared with supports_temperature=false require "
+            f"TEMPERATURES=[null]; incompatible models: {unsupported}"
+        )
 
     set_sizes = []
     for size in _load_json_env("REFERENCE_SET_SIZES", default=[1]):
@@ -364,6 +433,27 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 "PROTOCOL_ROLE 'confirmatory' does not allow grid search over "
                 f"exploratory dimensions; restrict {wide} to a single value "
                 "or use an exploratory/diagnostic role"
+            )
+        incomplete_sources = [
+            t.id
+            for t in translations
+            if t.rights == "unknown" or not t.edition or not t.license_basis
+        ]
+        if incomplete_sources:
+            raise ConfigError(
+                "PROTOCOL_ROLE 'confirmatory' requires declared rights, edition, "
+                "and license_basis for every translation; incomplete: "
+                f"{incomplete_sources}"
+            )
+        unverified_restricted = [
+            t.id
+            for t in translations
+            if t.rights == "restricted" and not t.verification
+        ]
+        if unverified_restricted:
+            raise ConfigError(
+                "Restricted translations in confirmatory runs require a "
+                f"verification mode; incomplete: {unverified_restricted}"
             )
 
     if "buffer_transform_selection" in methods:

@@ -7,10 +7,12 @@ from scripture_fidelity.scoring import (
     extract_quote,
     extract_quotes,
     final_output_exact,
+    tool_coverage_by_reference,
     normalize,
     tool_coverage,
     tool_was_used,
 )
+from types import SimpleNamespace
 
 BSB_JOHN_3_16 = (
     "For God so loved the world that He gave His one and only Son, "
@@ -189,6 +191,23 @@ def test_compute_multi_metrics_averages_and_penalizes_missing():
     assert m["verse_coverage"] == 0.5
     assert m["answered"] == 0.5
     assert 0.4 < m["cer"] <= 0.5001
+
+
+def test_tool_coverage_is_retained_per_reference():
+    messages = [
+        SimpleNamespace(
+            tool_calls=[
+                SimpleNamespace(
+                    function="get_passage",
+                    arguments={"reference": "John 3:16"},
+                )
+            ]
+        )
+    ]
+    coverage = tool_coverage_by_reference(
+        messages, "get_passage", ["John 3:16", "Psalm 117"]
+    )
+    assert coverage == {"John 3:16": 1.0, "Psalm 117": 0.0}
 
 
 def test_tool_coverage_fraction():

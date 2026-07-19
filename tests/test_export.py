@@ -1,6 +1,7 @@
 """Tests for the auditable result package export (AP-07/AP-08)."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,8 @@ from scripture_fidelity.config import (
 )
 from scripture_fidelity.export import (
     ExportError,
+    _expand_references,
+    _structured_error,
     build_run_manifest,
     build_scoring_config,
     build_source_fixtures,
@@ -64,8 +67,12 @@ def test_source_fixture_provenance_fields():
     assert row["canonical_reference"] == "JHN.3.16"
     assert row["retrieved_at"] == "2026-07-16T00:00:00+00:00"
     assert row["text_sha256"] == make_passage().text_sha256
+    assert row["normalized_text_sha256"] == make_passage().text_sha256
     assert row["normalization_version"]
     assert row["rights"] == "unknown"
+    assert row["edition"] is None
+    assert row["license_basis"] is None
+    assert row["public_release"] is False
     assert row["text"] == TRUTH
 
 
@@ -133,6 +140,10 @@ def test_manifest_counts_reconcile():
     assert counts["completed"] == 1
     assert counts["errors"] == 1
     assert counts["missing"] == 0
+    assert counts["completed_requests"] == 1
+    assert counts["error_requests"] == 1
+    assert manifest["build_identity"]["git_commit"]
+    assert manifest["execution_environment"]["python"]
     assert manifest["protocol_role"] == "diagnostic"
     assert manifest["config"]["protocol_role"] == "diagnostic"
 
@@ -199,6 +210,64 @@ def test_multi_reference_rows_share_request_id_and_regroup(tmp_path):
     assert row.reference == "John 3:16; Psalm 117"
     assert row.set_size == 2
     assert row.metrics == {"exact": 0.5}
+
+
+def test_multi_reference_export_preserves_per_reference_metrics():
+    md = {
+        "references": ["John 3:16", "Psalm 117"],
+        "fixture_ids": ["fixture-john", "fixture-psalm"],
+        "set_size": 2,
+    }
+    request_metrics = {"exact": 0.5, "tool_used": 0.5}
+    score_md = {
+        "per_reference": [
+            {
+                "reference": "John 3:16",
+                "answer": "correct",
+                "metrics": {"exact": 1.0, "tool_used": 1.0},
+            },
+            {
+                "reference": "Psalm 117",
+                "answer": "wrong",
+                "metrics": {"exact": 0.0, "tool_used": 0.0},
+            },
+        ]
+    }
+    common = {"request_id": "request-1", "request_metrics": request_metrics}
+
+    rows = _expand_references(
+        md,
+        request_metrics,
+        SimpleNamespace(answer="request answer"),
+        score_md,
+        common,
+    )
+
+    assert [row["trial_id"] for row in rows] == ["request-1:0", "request-1:1"]
+    assert rows[0]["metrics"] == {"exact": 1.0, "tool_used": 1.0}
+    assert rows[1]["metrics"] == {"exact": 0.0, "tool_used": 0.0}
+    assert rows[0]["request_metrics"] == request_metrics
+    assert rows[0]["answer"] == "correct"
+    assert rows[1]["answer"] == "wrong"
+
+
+def test_export_error_is_bounded_and_drops_traceback():
+    error = _structured_error(
+        "ModelGenerateError request body with private prompt traceback=full stack"
+    )
+    assert error["error_class"] == "ModelGenerateError"
+    assert "traceback" not in error["message"]
+    assert "private prompt" not in error["message"]
+
+
+def test_export_error_redacts_likely_credentials():
+    error = _structured_error(
+        "ProviderError API_KEY=secret-value bearer:abcdefghijkl "
+        "sk-live12345678"
+    )
+    assert "secret-value" not in error["message"]
+    assert "abcdefghijkl" not in error["message"]
+    assert "sk-live12345678" not in error["message"]
 
 
 def test_report_recomputed_from_export_matches(tmp_path):

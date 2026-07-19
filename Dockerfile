@@ -11,15 +11,16 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PORT=8080
+    PORT=8080 \
+    PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
 # Install the package with the [api] extra. Copy the metadata first so the
 # dependency layer is cached across source-only changes.
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY scripture_fidelity ./scripture_fidelity
-RUN pip install ".[api]"
+RUN pip install uv && uv sync --frozen --no-dev --extra api
 
 # Cloud Run ignores EXPOSE but it documents the listening port for humans.
 EXPOSE 8080

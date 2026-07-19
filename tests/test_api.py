@@ -8,13 +8,13 @@ surfacing as 422, and that an API run persists nothing to results/.
 
 from __future__ import annotations
 
-from pathlib import Path
+import hashlib
 
 import pytest
 from fastapi.testclient import TestClient
 
 from scripture_fidelity import runner
-from scripture_fidelity.api import TOKEN_ENV_VAR, app
+from scripture_fidelity.api import TOKEN_ENV_ALIAS, TOKEN_ENV_VAR, app
 from scripture_fidelity.bible.base import Passage, Verse
 
 TOKEN = "test-secret-token"
@@ -72,6 +72,16 @@ def test_healthz_needs_no_auth(client):
     assert client.get("/healthz").json() == {"status": "ok"}
 
 
+def test_version_needs_no_auth_and_reports_build(client):
+    body = client.get("/version").json()
+    assert body["status"] == "ok"
+    assert body["system_version"]
+    assert body["git_commit"]
+    assert body["schema_version"] == "2"
+    assert body["supported_conditions"]["source_supplied_quote"] == "rag"
+    assert "ao_lab" in body["supported_source_providers"]
+
+
 def test_missing_token_is_401(client):
     resp = client.post("/v1/runs", json=make_request())
     assert resp.status_code == 401
@@ -80,6 +90,13 @@ def test_missing_token_is_401(client):
 def test_wrong_token_is_401(client):
     resp = client.post("/v1/runs", json=make_request(), headers=auth("nope"))
     assert resp.status_code == 401
+
+
+def test_endpoint_api_key_alias_is_accepted(client, monkeypatch):
+    monkeypatch.delenv(TOKEN_ENV_VAR)
+    monkeypatch.setenv(TOKEN_ENV_ALIAS, TOKEN)
+    resp = client.post("/v1/runs", json=make_request(), headers=auth())
+    assert resp.status_code == 200
 
 
 def test_invalid_config_is_422(client):
@@ -100,6 +117,8 @@ def test_run_returns_full_package(client):
 
     assert body["status"] in ("completed", "completed_with_errors")
     assert body["run_id"]
+    assert body["request_id"]
+    assert body["system_version"] == body["manifest"]["build_identity"]["system_version"]
     assert isinstance(body["duration_seconds"], (int, float))
     # Full parity with the CLI export package + recomputed report.
     for key in (
@@ -109,7 +128,7 @@ def test_run_returns_full_package(client):
         assert key in body
 
     manifest = body["manifest"]
-    assert manifest["schema_version"] == "1"
+    assert manifest["schema_version"] == "2"
     assert manifest["requested_models"] == ["mockllm/model"]
     assert manifest["counts"]["trial_rows"] == len(body["trials"])
     assert body["trials"][0]["reference"] == "John 3:16"
@@ -130,11 +149,110 @@ def test_reference_accepts_array(client):
                 {"ref": "John 3:16"},
                 {"ref": "Psalm 117"},
             ],
-            reference_set_size=[1, 2],
+            reference_set_size=[2],
         ),
         headers=auth(),
     )
     assert resp.status_code == 200
+
+
+def test_caller_controlled_prompt_and_ids_are_preserved(client):
+    prompt = "Return only the exact requested source text."
+    resp = client.post(
+        "/v1/runs",
+        json=make_request(
+            method=None,
+            condition="native_parametric_quote",
+            request_id="fide-request-001",
+            scenario_id="FID056-P01-S001",
+            protocol_version="fid056-p01-v1",
+            repetition=3,
+            prompt=prompt,
+            temperature=None,
+            model={
+                "provider": "mockllm",
+                "model": "model",
+                "supports_temperature": False,
+            },
+        ),
+        headers=auth(),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["request_id"] == "fide-request-001"
+    assert body["scenario_id"] == "FID056-P01-S001"
+    assert body["condition_requested"] == "native_parametric_quote"
+    assert body["method_executed"] == "unassisted"
+    assert body["protocol_version"] == "fid056-p01-v1"
+    assert body["protocol_role"] == "diagnostic"
+    assert body["repetition"] == 3
+    trial = body["trials"][0]
+    assert trial["request_id"] == "fide-request-001"
+    assert trial["scenario_id"] == "FID056-P01-S001"
+    assert trial["protocol_version"] == "fid056-p01-v1"
+    assert trial["repetition"] == 3
+    assert trial["prompt_source"] == "caller"
+    assert len(trial["prompt_sha256"]) == 64
+
+
+def test_source_document_is_restricted_to_generated_rag_prompt(client):
+    bad_method = client.post(
+        "/v1/runs",
+        json=make_request(source_document=TRUTH),
+        headers=auth(),
+    )
+    assert bad_method.status_code == 422
+
+    conflicting_prompt = client.post(
+        "/v1/runs",
+        json=make_request(method="rag", source_document=TRUTH, prompt="Exact prompt"),
+        headers=auth(),
+    )
+    assert conflicting_prompt.status_code == 422
+
+
+def test_verified_source_document_provenance_is_exported(client):
+    expected_fixture_id = "ao_lab:BSB:BSB:JHN.3.16"
+    resp = client.post(
+        "/v1/runs",
+        json=make_request(
+            method=None,
+            condition="source_supplied_quote",
+            source_document=TRUTH,
+            source_fixture_id=expected_fixture_id,
+        ),
+        headers=auth(),
+    )
+    assert resp.status_code == 200
+    trial = resp.json()["trials"][0]
+    assert trial["source_fixture_id_requested"] == expected_fixture_id
+    assert trial["source_document_supplied"] is True
+    assert trial["source_document_sha256"] == hashlib.sha256(
+        TRUTH.encode("utf-8")
+    ).hexdigest()
+
+
+def test_source_fixture_mismatch_is_422_before_execution(client):
+    resp = client.post(
+        "/v1/runs",
+        json=make_request(source_fixture_id="wrong:fixture:id"),
+        headers=auth(),
+    )
+    assert resp.status_code == 422
+    assert "source_fixture_id mismatch" in resp.json()["detail"]
+
+
+def test_run_failure_returns_bounded_structured_error(client, monkeypatch):
+    def fail(config):
+        raise RuntimeError("private prompt and provider request must not leak")
+
+    monkeypatch.setattr(runner, "run_study_in_memory", fail)
+    resp = client.post("/v1/runs", json=make_request(), headers=auth())
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail["error_class"] == "RuntimeError"
+    assert detail["request_id"]
+    assert "private prompt" not in detail["message"]
 
 
 def test_run_persists_nothing_to_results(client, tmp_path, monkeypatch):
@@ -143,3 +261,4 @@ def test_run_persists_nothing_to_results(client, tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert not (tmp_path / "results").exists()
     assert not list(tmp_path.glob("sf-run-*"))
+    assert not (tmp_path / ".cache").exists()

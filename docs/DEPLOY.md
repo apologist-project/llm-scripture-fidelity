@@ -5,8 +5,10 @@ executes **one** study permutation per request and returns the full result
 package (the same data the CLI writes to `export/`, plus the recomputed
 report). Nothing is persisted server-side — the caller owns the response.
 
-- Endpoint: `POST /v1/runs` (bearer auth) and `GET /healthz` (no auth).
-- Auth: a single bearer token from `ENDPOINT_API_TOKEN`.
+- Endpoints: `POST /v1/runs` (bearer auth), `GET /healthz`, and
+  `GET /version` (no auth).
+- Auth: a bearer token from `ENDPOINT_API_TOKEN`; `ENDPOINT_API_KEY` is
+  accepted as a compatibility alias.
 - Recommended host: **Google Cloud Run** (scales to zero, managed HTTPS,
   first-class secrets). Render or a plain VM work with the same image.
 
@@ -82,6 +84,7 @@ gcloud run deploy scripture-fidelity-api \
   --cpu 1 --memory 1Gi \
   --no-cpu-throttling \
   --max-instances 5 \
+  --set-env-vars SOURCE_COMMIT="$(git rev-parse HEAD)",SOURCE_REPOSITORY_URL="$(git remote get-url origin)" \
   --set-secrets ENDPOINT_API_TOKEN=ENDPOINT_API_TOKEN:latest,\
 OPENAI_API_KEY=OPENAI_API_KEY:latest,\
 ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
@@ -105,6 +108,7 @@ The command prints a `Service URL`. Test it:
 SERVICE_URL=$(gcloud run services describe scripture-fidelity-api \
   --region us-central1 --format 'value(status.url)')
 curl -s "$SERVICE_URL/healthz"
+curl -s "$SERVICE_URL/version" | jq
 ```
 
 ## 4. Automated deploys (GitHub Actions)
@@ -186,28 +190,41 @@ All three use the identical image, so you are not locked in.
 
 ## 6. Request / response shape
 
-See `scripture_fidelity/api.py` for the Pydantic models. Minimal request:
+The complete contract is in [RESEARCH_API.md](RESEARCH_API.md), with committed
+JSON Schemas in `schemas/`. Minimal request:
 
 ```json
 {
   "reference": {"ref": "John 3:16", "type": "well_known_single"},
-  "method": "unassisted",
+  "condition": "native_parametric_quote",
   "translation": {"id": "BSB", "name": "Berean Standard Bible",
                   "language": "eng", "api": "ao_lab",
-                  "api_bible_id": "BSB", "rights": "open"},
+                  "api_bible_id": "BSB", "rights": "open",
+                  "edition": "current API edition",
+                  "license_basis": "provider terms",
+                  "public_release": true},
   "language": "eng",
   "language_pairing_mode": "matched",
   "language_pair": ["eng", "BSB"],
-  "model": {"provider": "openai", "model": "gpt-4-turbo"},
+  "model": {"provider": "openai", "model": "gpt-4-turbo",
+            "supports_temperature": true},
   "temperature": 0.25,
-  "reference_set_size": [1, 3]
+  "reference_set_size": [1],
+  "request_id": "fide-pilot-001",
+  "scenario_id": "explicit-single-john-3-16-bsb",
+  "protocol_version": "fid-056-pilot-v1",
+  "protocol_role": "diagnostic",
+  "repetition": 1
 }
 ```
 
-`reference` may also be an array so multi-reference set sizes (e.g. `[1, 3]`)
-are meaningful. The `200` response contains `status`, `run_id`,
-`duration_seconds`, and the full package: `manifest`, `trials`,
-`source_fixtures`, `method_configs`, `scoring_config`, `report`.
+`reference` may be an array for multi-reference requests. Each API request has
+exactly one `reference_set_size`, and that value must equal the number of
+references. Use `temperature: null` with `supports_temperature: false` when a
+provider must choose its own default. The `200` response contains the echoed
+research identity plus the full package: `manifest`, per-reference `trials`,
+`source_fixtures`, `method_configs`, `scoring_config`, and `report`.
 
 Status codes: `401` (bad/missing token), `422` (invalid study config),
-`502` (ground-truth prefetch/provider failure before the run).
+`502` (ground-truth prefetch/provider failure before the run). Error responses
+contain a bounded error class and correlation IDs, not raw traces or secrets.
