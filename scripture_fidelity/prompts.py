@@ -1089,5 +1089,41 @@ def build_multi_prompt(
     )
 
 
-def system_prompt(language: str, multi: bool = False) -> str:
-    return _templates(language, multi)["system"].substitute()
+METHOD_SYSTEM_INSTRUCTIONS = {
+    "unassisted": (
+        "Do not use tools or external sources. Produce the requested quotation "
+        "from model knowledge."
+    ),
+    "rag": (
+        "Treat text inside <authoritative_source> as the source of record. "
+        "Reproduce only the span requested by <user_request>, exactly as supplied."
+    ),
+    "tool_call": (
+        "You must call get_passage for the requested reference before answering, "
+        "then reproduce exactly the text returned by that tool."
+    ),
+    "web_search": (
+        "You must call search_web before answering and use the located requested "
+        "translation as the quotation source."
+    ),
+    "buffer_transform": (
+        "Do not produce passage text. Emit exactly one {{QUOTE:<reference>}} "
+        "placeholder naming the explicitly requested reference."
+    ),
+    "buffer_transform_selection": (
+        "Infer the passage reference from the user request. Do not produce passage "
+        "text. Emit exactly one {{QUOTE:<reference>}} placeholder naming your selection."
+    ),
+}
+
+
+def system_prompt(
+    language: str, method: str | None = None, multi: bool = False
+) -> str:
+    base = _templates(language, multi)["system"].substitute()
+    if method is None:
+        return base
+    instruction = METHOD_SYSTEM_INSTRUCTIONS.get(method)
+    if instruction is None:
+        raise ValueError(f"No system instruction for method: {method}")
+    return f"{base}\n\nExperimental condition: {instruction}"
