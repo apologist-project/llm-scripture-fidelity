@@ -187,6 +187,7 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
         "usage": usage.model_dump() if usage is not None else None,
         "prompt_source": md.get("prompt_source", "generated"),
         "prompt_sha256": md.get("prompt_sha256"),
+        "model_input_sha256": md.get("model_input_sha256"),
         "source_fixture_id_requested": md.get("source_fixture_id_requested"),
         "source_document_supplied": md.get("source_document_supplied", False),
         "source_document_sha256": md.get("source_document_sha256"),

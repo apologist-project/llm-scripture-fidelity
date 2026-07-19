@@ -126,11 +126,6 @@ class RunRequest(StrictModel):
             raise ValueError("source_document is allowed only for source_supplied_quote/rag")
         if self.source_document and len(self.references()) != 1:
             raise ValueError("source_document currently supports one reference per request")
-        if self.source_document and self.prompt:
-            raise ValueError(
-                "provide either an exact caller prompt containing its source "
-                "context or source_document for generated RAG prompting, not both"
-            )
         return self
 
 
