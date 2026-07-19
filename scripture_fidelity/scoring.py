@@ -236,6 +236,33 @@ def tool_coverage(messages, tool_name: str, references: list[str]) -> float:
     return len(covered) / len(references)
 
 
+def tool_coverage_by_reference(
+    messages, tool_name: str, references: list[str]
+) -> dict[str, float]:
+    """Return an invocation-coverage flag for each requested reference."""
+    from scripture_fidelity.references import ReferenceError, parse_reference
+
+    parsed = {}
+    for ref_str in references:
+        try:
+            parsed[ref_str] = parse_reference(ref_str)
+        except ReferenceError:
+            parsed[ref_str] = None
+    covered = {ref: 0.0 for ref in references}
+    for message in messages or []:
+        for call in getattr(message, "tool_calls", None) or []:
+            if call.function != tool_name:
+                continue
+            try:
+                called = parse_reference(str((call.arguments or {}).get("reference", "")))
+            except ReferenceError:
+                continue
+            for ref, expected in parsed.items():
+                if expected == called:
+                    covered[ref] = 1.0
+    return covered
+
+
 def compute_multi_metrics(
     quotes: dict[str, str],
     truths: list[str],
@@ -296,13 +323,17 @@ def quotation_fidelity():
             completion = state.output.completion
 
             structure = analyze_final_output(completion)
+            per_reference = []
             if multi:
                 quotes = extract_quotes(completion, references)
                 truths = state.metadata.get("ground_truth_texts", [])
+                verses_per_ref = state.metadata.get(
+                    "ground_truth_verses_per_ref", []
+                )
                 metrics = compute_multi_metrics(
                     quotes,
                     truths,
-                    state.metadata.get("ground_truth_verses_per_ref", []),
+                    verses_per_ref,
                     references,
                     language,
                 )
@@ -323,6 +354,18 @@ def quotation_fidelity():
                     f'<quote ref="{ref}">{quotes.get(ref, "")}</quote>'
                     for ref in references
                 )
+                per_reference = [
+                    {
+                        "reference": ref,
+                        "answer": quotes.get(ref, ""),
+                        "metrics": compute_metrics(
+                            quotes.get(ref, ""), truth, verses, language
+                        ),
+                    }
+                    for ref, truth, verses in zip(
+                        references, truths, verses_per_ref
+                    )
+                ]
             else:
                 quote = extract_quote(completion)
                 verses = state.metadata.get("ground_truth_verses", [])
@@ -330,6 +373,13 @@ def quotation_fidelity():
                 spans_exact = metrics["exact"]
                 output_exact = final_output_exact(completion, target.text)
                 answer = quote
+                per_reference = [
+                    {
+                        "reference": state.metadata.get("reference"),
+                        "answer": quote,
+                        "metrics": dict(metrics),
+                    }
+                ]
 
             metrics["quote_span_exact"] = spans_exact
             metrics["final_output_exact"] = output_exact
@@ -360,9 +410,16 @@ def quotation_fidelity():
             if expected_tool is None:
                 metrics["tool_used"] = 1.0
             elif multi and method == "tool_call":
-                metrics["tool_used"] = round(
-                    tool_coverage(state.messages, expected_tool, references), 4
+                coverage_by_ref = tool_coverage_by_reference(
+                    state.messages, expected_tool, references
                 )
+                metrics["tool_used"] = round(
+                    sum(coverage_by_ref.values()) / len(references), 4
+                )
+                for item in per_reference:
+                    item["metrics"]["tool_used"] = coverage_by_ref[
+                        item["reference"]
+                    ]
             else:
                 metrics["tool_used"] = (
                     1.0 if tool_was_used(state.messages, expected_tool) else 0.0
@@ -413,7 +470,7 @@ def quotation_fidelity():
                 answer=answer,
                 explanation=explanation,
                 metadata={
-                    "raw_output": state.store.get("raw_output"),
+                    "raw_output": state.store.get("raw_output") or completion,
                     "final_output": completion,
                     "failure_tags": failure_tags,
                     "selected_reference_raw": state.store.get(
@@ -423,6 +480,7 @@ def quotation_fidelity():
                         "selected_reference_parsed"
                     ),
                     "lookup_fixture_id": state.store.get("lookup_fixture_id"),
+                    "per_reference": per_reference,
                 },
             )
 

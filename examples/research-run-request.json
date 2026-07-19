@@ -1,0 +1,35 @@
+{
+  "reference": {
+    "ref": "John 3:16",
+    "type": "well_known_single",
+    "description": "Explicit single-verse request"
+  },
+  "condition": "native_parametric_quote",
+  "translation": {
+    "id": "BSB",
+    "name": "Berean Standard Bible",
+    "language": "eng",
+    "api": "ao_lab",
+    "api_bible_id": "BSB",
+    "rights": "open",
+    "verification": "exact_text",
+    "edition": "current API edition",
+    "license_basis": "provider terms",
+    "public_release": true
+  },
+  "language": "eng",
+  "language_pairing_mode": "matched",
+  "language_pair": ["eng", "BSB"],
+  "model": {
+    "provider": "openai",
+    "model": "gpt-4-turbo",
+    "supports_temperature": true
+  },
+  "temperature": 0.25,
+  "reference_set_size": [1],
+  "request_id": "research-pilot-001",
+  "scenario_id": "explicit-single-john-3-16-bsb",
+  "protocol_version": "source-delivery-pilot-v1",
+  "protocol_role": "diagnostic",
+  "repetition": 1
+}

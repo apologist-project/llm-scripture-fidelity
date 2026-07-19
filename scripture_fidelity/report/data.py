@@ -127,7 +127,10 @@ def rows_from_trial_dicts(trial_rows: list[dict]) -> list[TrialRow]:
                 protocol_role=first.get("protocol_role") or "",
                 fixture_id=first.get("fixture_id") or "",
                 metrics={
-                    k: float(v) for k, v in (first.get("metrics") or {}).items()
+                    k: float(v)
+                    for k, v in (
+                        first.get("request_metrics") or first.get("metrics") or {}
+                    ).items()
                 },
                 answer=first.get("answer", "") or "",
             )

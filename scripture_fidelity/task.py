@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from inspect_ai import Task
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import GenerateConfig
@@ -20,10 +22,10 @@ def variant_name(
     method: str,
     translation: TranslationConfig,
     language: str,
-    temperature: float,
+    temperature: float | None,
     set_size: int = 1,
 ) -> str:
-    temp = f"{temperature:g}".replace(".", "_")
+    temp = "default" if temperature is None else f"{temperature:g}".replace(".", "_")
     name = f"{method}__{translation.id}__{language}__t{temp}"
     if set_size > 1:
         name += f"__set{set_size}"
@@ -35,10 +37,13 @@ def build_sample(
     method: str,
     translation: TranslationConfig,
     language: str,
-    temperature: float,
+    temperature: float | None,
     passage: Passage,
     pairing_mode: str = "matched",
     protocol_role: str = "diagnostic",
+    prompt_override: str = "",
+    request_context: dict | None = None,
+    source_document_override: str = "",
 ) -> Sample:
     prompt = build_prompt(
         language=language,
@@ -46,11 +51,18 @@ def build_sample(
         reference=ref.ref,
         translation_name=translation.display_name,
         translation_id=translation.id,
-        context=passage.text if method == "rag" else "",
+        context=(
+            source_document_override or passage.text
+            if method == "rag"
+            else ""
+        ),
         description=ref.description,
     )
+    if prompt_override:
+        prompt = prompt_override
+    request_context = request_context or {}
     return Sample(
-        id=ref.ref,
+        id=request_context.get("scenario_id") or ref.ref,
         input=prompt,
         target=passage.text,
         metadata={
@@ -70,6 +82,21 @@ def build_sample(
             "temperature": temperature,
             "set_size": 1,
             "ground_truth_verses": [v.text for v in passage.verses],
+            "caller_request_id": request_context.get("request_id") or None,
+            "scenario_id": request_context.get("scenario_id") or None,
+            "protocol_version": request_context.get("protocol_version") or None,
+            "repetition": int(request_context.get("repetition", 1)),
+            "prompt_source": "caller" if prompt_override else "generated",
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "source_fixture_id_requested": (
+                request_context.get("source_fixture_id") or None
+            ),
+            "source_document_supplied": bool(source_document_override),
+            "source_document_sha256": (
+                hashlib.sha256(source_document_override.encode("utf-8")).hexdigest()
+                if source_document_override
+                else None
+            ),
         },
     )
 
@@ -79,11 +106,14 @@ def build_multi_sample(
     method: str,
     translation: TranslationConfig,
     language: str,
-    temperature: float,
+    temperature: float | None,
     passages: dict[str, Passage],
     set_size: int,
     pairing_mode: str = "matched",
     protocol_role: str = "diagnostic",
+    prompt_override: str = "",
+    request_context: dict | None = None,
+    source_document_override: str = "",
 ) -> Sample:
     """One sample asking for several references in a single prompt.
 
@@ -100,8 +130,11 @@ def build_multi_sample(
             [(r, passages[r].text) for r in ref_strings] if method == "rag" else None
         ),
     )
+    if prompt_override:
+        prompt = prompt_override
+    request_context = request_context or {}
     return Sample(
-        id="; ".join(ref_strings),
+        id=request_context.get("scenario_id") or "; ".join(ref_strings),
         input=prompt,
         target="\n\n".join(passages[r].text for r in ref_strings),
         metadata={
@@ -124,6 +157,15 @@ def build_multi_sample(
             "ground_truth_verses_per_ref": [
                 [v.text for v in passages[r].verses] for r in ref_strings
             ],
+            "caller_request_id": request_context.get("request_id") or None,
+            "scenario_id": request_context.get("scenario_id") or None,
+            "protocol_version": request_context.get("protocol_version") or None,
+            "repetition": int(request_context.get("repetition", 1)),
+            "prompt_source": "caller" if prompt_override else "generated",
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "source_fixture_id_requested": (
+                request_context.get("source_fixture_id") or None
+            ),
         },
     )
 
@@ -132,13 +174,16 @@ def build_task(
     method: str,
     translation: TranslationConfig,
     language: str,
-    temperature: float,
+    temperature: float | None,
     references: list[ReferenceConfig],
     passages: dict[str, Passage],
     service: PassageService,
     set_size: int = 1,
     pairing_mode: str = "matched",
     protocol_role: str = "diagnostic",
+    prompt_override: str = "",
+    request_context: dict | None = None,
+    source_document_override: str = "",
 ) -> Task:
     """Build one Inspect task for a (method, translation, language, temp,
     set_size) variant. ``passages`` maps reference string -> Passage for
@@ -155,6 +200,9 @@ def build_task(
                 passages[ref.ref],
                 pairing_mode=pairing_mode,
                 protocol_role=protocol_role,
+                prompt_override=prompt_override,
+                request_context=request_context,
+                source_document_override=source_document_override,
             )
             for ref in references
         ]
@@ -170,6 +218,8 @@ def build_task(
                 set_size,
                 pairing_mode=pairing_mode,
                 protocol_role=protocol_role,
+                prompt_override=prompt_override,
+                request_context=request_context,
             )
             for i in range(0, len(references), set_size)
         ]
@@ -180,7 +230,11 @@ def build_task(
             method, language, translation, service, multi=set_size > 1
         ),
         scorer=quotation_fidelity(),
-        config=GenerateConfig(temperature=temperature),
+        config=(
+            GenerateConfig()
+            if temperature is None
+            else GenerateConfig(temperature=temperature)
+        ),
         name=name,
         metadata={
             "method": method,

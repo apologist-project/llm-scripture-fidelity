@@ -19,23 +19,29 @@ import concurrent.futures
 import hmac
 import os
 from typing import Union
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scripture_fidelity.config import ConfigError
+from scripture_fidelity.config import ConfigError, VALID_APIS, VALID_PROVIDERS
 
 TOKEN_ENV_VAR = "ENDPOINT_API_TOKEN"
+TOKEN_ENV_ALIAS = "ENDPOINT_API_KEY"
 
 
-class ReferenceModel(BaseModel):
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReferenceModel(StrictModel):
     ref: str
     type: str | None = None
     description: str = ""
 
 
-class TranslationModel(BaseModel):
+class TranslationModel(StrictModel):
     id: str
     language: str
     api: str
@@ -43,38 +49,131 @@ class TranslationModel(BaseModel):
     name: str = ""
     rights: str = "unknown"
     verification: str = ""
+    edition: str = ""
+    license_basis: str = ""
+    public_release: bool = False
 
 
-class ModelModel(BaseModel):
+class ModelModel(StrictModel):
     provider: str
     model: str
+    supports_temperature: bool = True
 
 
-class RunRequest(BaseModel):
+CONDITION_METHODS = {
+    "native_parametric_quote": "unassisted",
+    "source_supplied_quote": "rag",
+    "tool_call_quote": "tool_call",
+    "deterministic_render_given_reference": "buffer_transform",
+    "reference_token_then_replace": "buffer_transform_selection",
+    "web_search_quote": "web_search",
+}
+
+
+class RunRequest(StrictModel):
     """A single study permutation. ``reference`` accepts one object or a list
     (a list makes multi-reference set sizes such as [1, 3] meaningful)."""
 
     reference: Union[ReferenceModel, list[ReferenceModel]]
-    method: str
+    method: str | None = None
+    condition: str | None = None
     translation: TranslationModel
     language: str = "eng"
     language_pairing_mode: str = "matched"
     language_pair: list[str]
     model: ModelModel
-    temperature: float = 0.25
-    reference_set_size: list[int] = Field(default_factory=lambda: [1, 3])
+    temperature: float | None = None
+    reference_set_size: list[int] = Field(default_factory=lambda: [1])
+    request_id: str = Field(default_factory=lambda: str(uuid4()))
+    scenario_id: str = ""
+    prompt: str = ""
+    protocol_version: str = ""
+    protocol_role: str = "diagnostic"
+    repetition: int = Field(default=1, ge=1)
+    source_fixture_id: str = ""
+    source_document: str = ""
 
     def references(self) -> list[ReferenceModel]:
         r = self.reference
         return r if isinstance(r, list) else [r]
 
+    def resolved_method(self) -> str:
+        if self.condition:
+            return CONDITION_METHODS[self.condition]
+        assert self.method is not None
+        return self.method
+
+    @model_validator(mode="after")
+    def validate_research_request(self):
+        if not self.method and not self.condition:
+            raise ValueError("one of method or condition is required")
+        if self.condition and self.condition not in CONDITION_METHODS:
+            raise ValueError(f"unsupported condition: {self.condition}")
+        if self.method and self.condition:
+            expected = CONDITION_METHODS[self.condition]
+            if self.method != expected:
+                raise ValueError(
+                    f"method {self.method!r} does not implement condition "
+                    f"{self.condition!r} (expected {expected!r})"
+                )
+        if len(self.reference_set_size) != 1:
+            raise ValueError("single-run API requires exactly one reference_set_size")
+        if self.reference_set_size[0] != len(self.references()):
+            raise ValueError(
+                "reference_set_size must equal the number of supplied references"
+            )
+        if self.source_document and self.resolved_method() != "rag":
+            raise ValueError("source_document is allowed only for source_supplied_quote/rag")
+        if self.source_document and len(self.references()) != 1:
+            raise ValueError("source_document currently supports one reference per request")
+        if self.source_document and self.prompt:
+            raise ValueError(
+                "provide either an exact caller prompt containing its source "
+                "context or source_document for generated RAG prompting, not both"
+            )
+        return self
+
+
+class RunResponse(StrictModel):
+    """Release-safe result package returned for one research request."""
+
+    status: str
+    request_id: str
+    scenario_id: str | None = None
+    condition_requested: str | None = None
+    condition_executed: str | None = None
+    method_executed: str
+    protocol_version: str | None = None
+    protocol_role: str
+    repetition: int
+    system_version: str
+    run_id: str
+    duration_seconds: float
+    manifest: dict
+    trials: list[dict]
+    source_fixtures: list[dict]
+    method_configs: dict
+    scoring_config: dict
+    report: dict
+
+
+def api_schema_documents() -> dict[str, dict]:
+    """Committed API schemas keyed by their public filenames."""
+    return {
+        "research-run-request.schema.json": RunRequest.model_json_schema(),
+        "research-run-response.schema.json": RunResponse.model_json_schema(),
+    }
+
 
 def _require_token() -> str:
-    token = os.environ.get(TOKEN_ENV_VAR, "").strip()
+    token = (
+        os.environ.get(TOKEN_ENV_VAR, "").strip()
+        or os.environ.get(TOKEN_ENV_ALIAS, "").strip()
+    )
     if not token:
         raise RuntimeError(
-            f"{TOKEN_ENV_VAR} is not set; the API refuses to start without a "
-            "bearer token. Set it in the environment or .env."
+            f"Neither {TOKEN_ENV_VAR} nor {TOKEN_ENV_ALIAS} is set; the API "
+            "refuses to start without a bearer token."
         )
     return token
 
@@ -106,6 +205,22 @@ async def healthz() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/version")
+async def version() -> dict:
+    """Unauthenticated immutable build and schema identity."""
+    from scripture_fidelity.provenance import build_identity
+
+    return {
+        "status": "ok",
+        **build_identity(),
+        "supported_conditions": CONDITION_METHODS,
+        "supported_methods": sorted(set(CONDITION_METHODS.values())),
+        "supported_source_providers": list(VALID_APIS),
+        "supported_model_providers": list(VALID_PROVIDERS),
+        "request_schema": "/openapi.json",
+    }
+
+
 # Study dimensions that map from the request payload to load_config env vars.
 # Provider/Bible-API credentials are read from the process environment (.env)
 # and are deliberately not part of the request.
@@ -126,14 +241,12 @@ def _build_config(req: RunRequest):
 
     payload = {
         "REFERENCES": json.dumps([r.model_dump() for r in req.references()]),
-        "METHODS": json.dumps([req.method]),
+        "METHODS": json.dumps([req.resolved_method()]),
         "TRANSLATIONS": json.dumps([req.translation.model_dump()]),
         "LANGUAGES": json.dumps([req.language]),
         "LANGUAGE_PAIRING_MODE": req.language_pairing_mode,
         "LANGUAGE_PAIRS": json.dumps([req.language_pair]),
-        # diagnostic is the role that permits a multi-valued set-size grid
-        # (e.g. [1, 3]) while keeping crossed pairing disabled by default.
-        "PROTOCOL_ROLE": "diagnostic",
+        "PROTOCOL_ROLE": req.protocol_role,
         "MODELS": json.dumps([req.model.model_dump()]),
         "TEMPERATURES": json.dumps([req.temperature]),
         "REFERENCE_SET_SIZES": json.dumps(req.reference_set_size),
@@ -143,7 +256,18 @@ def _build_config(req: RunRequest):
         os.environ.update(payload)
         # env_file=None: do not reload .env (it would override our payload);
         # provider credentials are already present in the process environment.
-        return load_config(env_file=None)
+        config = load_config(env_file=None)
+        config.request_id = req.request_id
+        config.scenario_id = req.scenario_id
+        config.protocol_version = req.protocol_version
+        config.repetition = req.repetition
+        config.prompt_override = req.prompt
+        config.source_fixture_id = req.source_fixture_id
+        config.source_document_override = req.source_document
+        from scripture_fidelity.runner import validate_source_fixture
+
+        validate_source_fixture(config)
+        return config
     finally:
         for k, v in saved.items():
             if v is None:
@@ -152,8 +276,12 @@ def _build_config(req: RunRequest):
                 os.environ[k] = v
 
 
-@app.post("/v1/runs", dependencies=[Depends(verify_bearer)])
-async def create_run(req: RunRequest) -> dict:
+@app.post(
+    "/v1/runs",
+    dependencies=[Depends(verify_bearer)],
+    response_model=RunResponse,
+)
+async def create_run(req: RunRequest) -> RunResponse:
     """Execute one permutation and return the full result package."""
     import time
 
@@ -179,18 +307,32 @@ async def create_run(req: RunRequest) -> dict:
             result = await loop.run_in_executor(
                 pool, run_study_in_memory, config
             )
-    except Exception as e:  # noqa: BLE001 - surface prefetch/provider failures
+    except Exception as e:  # noqa: BLE001 - convert to release-safe structured error
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Run failed before completion: {e}",
+            detail={
+                "error_class": type(e).__name__,
+                "message": "Run failed before completion; consult restricted server logs",
+                "request_id": req.request_id,
+                "scenario_id": req.scenario_id or None,
+            },
         ) from e
 
     counts = result["manifest"]["counts"]
     status_str = (
         "completed_with_errors" if counts["errors"] else "completed"
     )
-    return {
+    return RunResponse(**{
         "status": status_str,
+        "request_id": req.request_id,
+        "scenario_id": req.scenario_id or None,
+        "condition_requested": req.condition,
+        "condition_executed": req.condition,
+        "method_executed": req.resolved_method(),
+        "protocol_version": req.protocol_version or None,
+        "protocol_role": req.protocol_role,
+        "repetition": req.repetition,
+        "system_version": result["manifest"]["build_identity"]["system_version"],
         "run_id": result["run_id"],
         "duration_seconds": round(time.monotonic() - started, 3),
         "manifest": result["manifest"],
@@ -199,7 +341,7 @@ async def create_run(req: RunRequest) -> dict:
         "method_configs": result["method_configs"],
         "scoring_config": result["scoring_config"],
         "report": result["report"],
-    }
+    })
 
 
 def serve() -> None:
