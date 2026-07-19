@@ -31,7 +31,7 @@ def _model_input(
     add the authoritative document through a versioned harness wrapper.
     """
     caller_prompt = prompt_override or generated_prompt
-    if method == "rag" and prompt_override and source_document_override:
+    if method == "rag" and source_document_override:
         return caller_prompt, (
             "<authoritative_source>\n"
             f"{source_document_override}\n"
@@ -70,15 +70,16 @@ def build_sample(
     request_context: dict | None = None,
     source_document_override: str = "",
 ) -> Sample:
+    canonical_english_rag = method == "rag" and language == "eng"
     generated_prompt = build_prompt(
         language=language,
-        method=method,
+        method="unassisted" if canonical_english_rag else method,
         reference=ref.ref,
         translation_name=translation.display_name,
         translation_id=translation.id,
         context=(
             source_document_override or passage.text
-            if method == "rag"
+            if method == "rag" and not canonical_english_rag
             else ""
         ),
         description=ref.description,
@@ -87,7 +88,11 @@ def build_sample(
         generated_prompt,
         method=method,
         prompt_override=prompt_override,
-        source_document_override=source_document_override,
+        source_document_override=(
+            source_document_override or passage.text
+            if canonical_english_rag
+            else source_document_override
+        ),
     )
     request_context = request_context or {}
     return Sample(
@@ -117,7 +122,9 @@ def build_sample(
             "repetition": int(request_context.get("repetition", 1)),
             "prompt_source": "caller" if prompt_override else "generated",
             "prompt_sha256": hashlib.sha256(caller_prompt.encode("utf-8")).hexdigest(),
-            "model_input_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "effective_user_input_sha256": hashlib.sha256(
+                prompt.encode("utf-8")
+            ).hexdigest(),
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
             ),
@@ -193,6 +200,9 @@ def build_multi_sample(
             "repetition": int(request_context.get("repetition", 1)),
             "prompt_source": "caller" if prompt_override else "generated",
             "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "effective_user_input_sha256": hashlib.sha256(
+                prompt.encode("utf-8")
+            ).hexdigest(),
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
             ),

@@ -1096,7 +1096,7 @@ METHOD_SYSTEM_INSTRUCTIONS = {
     ),
     "rag": (
         "Treat text inside <authoritative_source> as the source of record. "
-        "Reproduce only the span requested by <user_request>, exactly as supplied."
+        "Reproduce exactly the span requested inside <user_request>."
     ),
     "tool_call": (
         "You must call get_passage for the requested reference before answering, "
@@ -1121,7 +1121,9 @@ def system_prompt(
     language: str, method: str | None = None, multi: bool = False
 ) -> str:
     base = _templates(language, multi)["system"].substitute()
-    if method is None:
+    # Generated non-English prompts already contain localized method
+    # instructions. Caller-supplied prompts are currently restricted to English.
+    if method is None or language != "eng":
         return base
     instruction = METHOD_SYSTEM_INSTRUCTIONS.get(method)
     if instruction is None:

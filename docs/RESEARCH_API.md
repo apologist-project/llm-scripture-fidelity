@@ -56,6 +56,8 @@ condition from output quality.
 Condition-specific tool, source-use, and placeholder instructions are applied
 in the system layer. A caller-supplied user prompt therefore remains identical
 across conditions while the harness changes only the assigned architecture.
+This caller-prompt path is English-only in the current protocol version;
+non-English runs use the repository's reviewed localized prompt templates.
 
 ## Caller-controlled research fields
 
@@ -76,7 +78,7 @@ across conditions while the harness changes only the assigned architecture.
   exact user request is preserved and the document is added through the pinned
   harness context wrapper.
 
-The export records the caller-prompt hash, effective model-input hash, and
+The export records the caller-prompt hash, effective user-input hash, and
 whether the prompt was caller-supplied. API runs
 delete their temporary Inspect logs, so callers must retain their submitted
 prompt registry; generated prompts are recoverable from the pinned template

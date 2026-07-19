@@ -126,6 +126,16 @@ class RunRequest(StrictModel):
             raise ValueError("source_document is allowed only for source_supplied_quote/rag")
         if self.source_document and len(self.references()) != 1:
             raise ValueError("source_document currently supports one reference per request")
+        if self.prompt and self.resolved_method() == "rag" and not self.source_document:
+            raise ValueError(
+                "caller-supplied source_supplied_quote/rag prompts require "
+                "source_document"
+            )
+        if self.prompt and self.language != "eng":
+            raise ValueError(
+                "caller-supplied prompts currently support English only; "
+                "omit prompt to use the versioned localized templates"
+            )
         return self
 
 
