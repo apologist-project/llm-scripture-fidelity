@@ -11,7 +11,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 SYSTEM_SCHEMA_VERSION = "2"
-PROMPT_TEMPLATE_VERSION = "scripture-fidelity-prompts-v2"
+PROMPT_TEMPLATE_VERSION = "scripture-fidelity-prompts-v3"
 
 
 def _repo_root() -> Path:

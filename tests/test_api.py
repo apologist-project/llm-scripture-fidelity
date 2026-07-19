@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from scripture_fidelity import runner
 from scripture_fidelity.api import TOKEN_ENV_ALIAS, TOKEN_ENV_VAR, app
 from scripture_fidelity.bible.base import Passage, Verse
+from scripture_fidelity.prompts import system_prompt
 
 TOKEN = "test-secret-token"
 TRUTH = "For God so loved the world..."
@@ -70,6 +71,13 @@ def auth(token=TOKEN) -> dict:
 
 def test_healthz_needs_no_auth(client):
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_external_prompt_keeps_condition_in_system_layer():
+    assert "must call get_passage" in system_prompt("eng", "tool_call")
+    assert "Infer the passage reference" in system_prompt(
+        "eng", "buffer_transform_selection"
+    )
 
 
 def test_version_needs_no_auth_and_reports_build(client):

@@ -266,7 +266,9 @@ def solver_chain(
 ) -> list[Solver]:
     """Build the solver chain for one study method. ``multi`` selects the
     multi-reference system prompt and placeholder transform."""
-    chain: list[Solver] = [system_message(system_prompt(language, multi=multi))]
+    chain: list[Solver] = [
+        system_message(system_prompt(language, method=method, multi=multi))
+    ]
     if method == "tool_call":
         chain.append(use_tools(get_passage(translation, service)))
     elif method == "web_search":

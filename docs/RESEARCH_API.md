@@ -52,6 +52,10 @@ above. The response echoes `condition_requested`, `condition_executed`, and
 `method_executed`; analysis must use the executed fields rather than infer the
 condition from output quality.
 
+Condition-specific tool, source-use, and placeholder instructions are applied
+in the system layer. A caller-supplied user prompt therefore remains identical
+across conditions while the harness changes only the assigned architecture.
+
 ## Caller-controlled research fields
 
 - `request_id`: stable correlation identifier chosen by the caller. It is not
