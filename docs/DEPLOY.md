@@ -210,9 +210,9 @@ JSON Schemas in `schemas/`. Minimal request:
             "supports_temperature": true},
   "temperature": 0.25,
   "reference_set_size": [1],
-  "request_id": "fide-pilot-001",
+  "request_id": "research-pilot-001",
   "scenario_id": "explicit-single-john-3-16-bsb",
-  "protocol_version": "fid-056-pilot-v1",
+  "protocol_version": "source-delivery-pilot-v1",
   "protocol_role": "diagnostic",
   "repetition": 1
 }

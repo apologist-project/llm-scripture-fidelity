@@ -163,9 +163,9 @@ def test_caller_controlled_prompt_and_ids_are_preserved(client):
         json=make_request(
             method=None,
             condition="native_parametric_quote",
-            request_id="fide-request-001",
-            scenario_id="FID056-P01-S001",
-            protocol_version="fid056-p01-v1",
+            request_id="research-request-001",
+            scenario_id="SOURCE-PILOT-S001",
+            protocol_version="source-delivery-pilot-v1",
             repetition=3,
             prompt=prompt,
             temperature=None,
@@ -179,17 +179,17 @@ def test_caller_controlled_prompt_and_ids_are_preserved(client):
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["request_id"] == "fide-request-001"
-    assert body["scenario_id"] == "FID056-P01-S001"
+    assert body["request_id"] == "research-request-001"
+    assert body["scenario_id"] == "SOURCE-PILOT-S001"
     assert body["condition_requested"] == "native_parametric_quote"
     assert body["method_executed"] == "unassisted"
-    assert body["protocol_version"] == "fid056-p01-v1"
+    assert body["protocol_version"] == "source-delivery-pilot-v1"
     assert body["protocol_role"] == "diagnostic"
     assert body["repetition"] == 3
     trial = body["trials"][0]
-    assert trial["request_id"] == "fide-request-001"
-    assert trial["scenario_id"] == "FID056-P01-S001"
-    assert trial["protocol_version"] == "fid056-p01-v1"
+    assert trial["request_id"] == "research-request-001"
+    assert trial["scenario_id"] == "SOURCE-PILOT-S001"
+    assert trial["protocol_version"] == "source-delivery-pilot-v1"
     assert trial["repetition"] == 3
     assert trial["prompt_source"] == "caller"
     assert len(trial["prompt_sha256"]) == 64

@@ -1,8 +1,8 @@
 # Research API Contract
 
 This document defines the integration boundary between an independent research
-caller and a hosted Scripture-fidelity implementation. It lets Fide AI execute
-preregistered scenarios while The Apologist Project retains its implementation,
+caller and a hosted Scripture-fidelity implementation. It lets research teams
+execute preregistered scenarios while implementation operators retain their
 provider credentials, source agreements, and operational infrastructure.
 
 The contract supports reproducible measurement. It is not a certification,
@@ -128,7 +128,8 @@ retry and missingness rules before confirmatory execution.
 
 The endpoint implementation, private credentials, partner traces, held-out
 prompts, and restricted source text remain internal to their respective
-organizations. Fide AI may publish protocol materials, public-domain scenarios,
-scoring definitions, aggregate results, and reviewed release-safe artifacts
-under the organizations' written agreement. Product claims and implementation
-details require separate approval and are not implied by this contract.
+organizations. Research teams may publish protocol materials, public-domain
+scenarios, scoring definitions, aggregate results, and reviewed release-safe
+artifacts under the participating organizations' written agreement. Product
+claims and implementation details require separate approval and are not implied
+by this contract.
