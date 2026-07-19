@@ -1,16 +1,17 @@
 # Research API Contract
 
 This document defines the integration boundary between an independent research
-caller and a hosted Scripture-fidelity implementation. It lets research teams
-execute preregistered scenarios while implementation operators retain their
-provider credentials, source agreements, and operational infrastructure.
+caller and an executable Scripture-fidelity implementation. Research teams may
+run the committed API locally from a pinned checkout or call an independently
+operated deployment. In either mode, the executor retains control of provider
+credentials, source agreements, and operational infrastructure.
 
 The contract supports reproducible measurement. It is not a certification,
 leaderboard, product endorsement, or permission to release restricted text.
 
 ## Version and discovery
 
-`GET /version` requires no authentication and returns the deployed commit,
+`GET /version` requires no authentication and returns the running commit,
 dependency-lock hash, schema version, prompt-template version, and supported
 condition-to-method mappings. Capture this response once before and once after
 each run batch. A changed identity means the batch spans multiple system
@@ -122,7 +123,7 @@ retry and missingness rules before confirmatory execution.
 
 ## Required preflight
 
-1. Pin and record the deployment commit and `/version` response.
+1. Pin and record the execution commit and `/version` response.
 2. Validate all requests against the committed request schema.
 3. Confirm source edition, rights, verification, and release metadata.
 4. Run a small integration pilot across each condition and provider family.

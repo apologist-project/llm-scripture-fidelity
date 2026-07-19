@@ -132,9 +132,9 @@ Reports can be rebuilt from a past run's logs without re-running anything:
 scripture-fidelity report results/20260710-212847
 ```
 
-## HTTP API (single run)
+## Research API (local or hosted single run)
 
-Besides the CLI, the study can be served as an authenticated HTTP endpoint that
+Besides the CLI, the study can be served locally or remotely as an authenticated HTTP endpoint that
 executes **one** permutation per request and returns the full result package.
 Unlike the CLI, an API run is ephemeral: nothing is written to `results/`, and
 the caller owns the returned JSON.
@@ -158,7 +158,7 @@ The versioned collaboration contract, examples, and release boundaries are in
 [docs/RESEARCH_API.md](docs/RESEARCH_API.md); committed JSON Schemas are in
 [`schemas/`](schemas/). The runtime models live in
 `scripture_fidelity/api.py`. For
-containerization and hosting (Google Cloud Run, with a GitHub Actions
+optional containerization and hosting (Google Cloud Run, with a GitHub Actions
 auto-deploy on push to `main`, plus Render/VM alternatives), see
 [docs/DEPLOY.md](docs/DEPLOY.md).
 
