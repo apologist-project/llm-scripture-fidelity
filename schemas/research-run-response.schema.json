@@ -1,0 +1,140 @@
+{
+  "additionalProperties": false,
+  "description": "Release-safe result package returned for one research request.",
+  "properties": {
+    "condition_executed": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Condition Executed"
+    },
+    "condition_requested": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Condition Requested"
+    },
+    "duration_seconds": {
+      "title": "Duration Seconds",
+      "type": "number"
+    },
+    "manifest": {
+      "additionalProperties": true,
+      "title": "Manifest",
+      "type": "object"
+    },
+    "method_configs": {
+      "additionalProperties": true,
+      "title": "Method Configs",
+      "type": "object"
+    },
+    "method_executed": {
+      "title": "Method Executed",
+      "type": "string"
+    },
+    "protocol_role": {
+      "title": "Protocol Role",
+      "type": "string"
+    },
+    "protocol_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Protocol Version"
+    },
+    "repetition": {
+      "title": "Repetition",
+      "type": "integer"
+    },
+    "report": {
+      "additionalProperties": true,
+      "title": "Report",
+      "type": "object"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scenario Id"
+    },
+    "scoring_config": {
+      "additionalProperties": true,
+      "title": "Scoring Config",
+      "type": "object"
+    },
+    "source_fixtures": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Source Fixtures",
+      "type": "array"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "system_version": {
+      "title": "System Version",
+      "type": "string"
+    },
+    "trials": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Trials",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status",
+    "request_id",
+    "method_executed",
+    "protocol_role",
+    "repetition",
+    "system_version",
+    "run_id",
+    "duration_seconds",
+    "manifest",
+    "trials",
+    "source_fixtures",
+    "method_configs",
+    "scoring_config",
+    "report"
+  ],
+  "title": "RunResponse",
+  "type": "object"
+}

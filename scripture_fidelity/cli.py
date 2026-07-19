@@ -128,7 +128,18 @@ def _apply_overrides(config, args):
         "references", config.references, _csv(args.references), lambda r: r.ref
     )
     if args.temperatures is not None:
-        config.temperatures = [float(t) for t in _csv(args.temperatures)]
+        config.temperatures = [
+            None if t.casefold() in {"default", "none", "null"} else float(t)
+            for t in _csv(args.temperatures)
+        ]
+    if (
+        any(not model.supports_temperature for model in config.models)
+        and config.temperatures != [None]
+    ):
+        raise ConfigError(
+            "models with supports_temperature=false require "
+            "--temperatures default"
+        )
     if args.set_sizes is not None:
         sizes = [int(s) for s in _csv(args.set_sizes)]
         if any(s < 1 for s in sizes):
@@ -158,7 +169,10 @@ def _print_grid(config, iterations: int) -> None:
             [f"{lang}\u2192{t.id}" for lang, t in pairs],
         ),
         ("models", [m.inspect_model for m in config.models]),
-        ("temperatures", [f"{t:g}" for t in config.temperatures]),
+        (
+            "temperatures",
+            ["provider default" if t is None else f"{t:g}" for t in config.temperatures],
+        ),
     ]:
         table.add_row(name, str(len(values)), ", ".join(str(v) for v in values))
     console.print(table)

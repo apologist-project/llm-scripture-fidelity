@@ -65,6 +65,7 @@ jobs:
             --cpu 1 --memory 1Gi \
             --no-cpu-throttling \
             --max-instances 5 \
+            --set-env-vars "SOURCE_COMMIT=${GITHUB_SHA},SOURCE_REPOSITORY_URL=https://github.com/${GITHUB_REPOSITORY}" \
             --set-secrets "${{ vars.GCP_RUN_SECRETS }}"
 
       - name: Show service URL

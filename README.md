@@ -39,14 +39,14 @@ cp .env.example .env
 | Variable | Description |
 |---|---|
 | `REFERENCES` | Scripture references to test. Each entry is a string (`"John 3:16"`) or an object with a grouping label: `{"ref": "Psalm 117", "type": "chapter"}`. Supports single verses, ranges (`Romans 8:38-39`), cross-chapter ranges (`Luke 9:57-10:2`), and whole chapters. When `type` is omitted it is inferred (`single`/`range`/`chapter`). |
-| `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `buffer_transform`, `web_search`. |
-| `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and `api_bible_id` (the provider-specific identifier). Optional `name` for display. |
-| `LANGUAGES` | Prompt languages, crossed with every translation. Prompt templates exist for `eng`, `zho`, `spa`, `fra`, `deu`, `hin`, `ara`, `por`, `urd`, `rus`, and `ben`. |
-| `MODELS` | Models as `{"provider": ..., "model": ...}`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), and `mockllm` (for testing without API calls). |
-| `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. |
+| `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `buffer_transform`, `buffer_transform_selection`, `web_search`. |
+| `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and `api_bible_id` (the provider-specific identifier). Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
+| `LANGUAGES` | Available prompt languages. In `matched` mode only declared `LANGUAGE_PAIRS` run; a full cross-product requires an explicitly exploratory `crossed` configuration. |
+| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), and `mockllm` (for testing without API calls). |
+| `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. Use `[null]` to omit temperature and use the provider default. |
 | `REFERENCE_SET_SIZES` | Optional (default `[1]`). Reference set sizes, e.g. `[1, 3]`. For each size > 1 the references list is chunked (in order) into sets of that size, and each set becomes a single prompt asking for all of its passages at once — probing whether models handle every requested reference (e.g. calling `get_passage` once per reference). Size 1 reproduces standard single-reference samples. |
 
-The run grid is the full cross product: reference sets × methods × translations × languages × models × temperatures.
+The run grid combines reference sets, methods, declared language-translation pairs, models, and temperatures. A full languages × translations cross-product runs only in explicitly exploratory `crossed` mode.
 
 ### Bible API providers
 
@@ -146,14 +146,18 @@ scripture-fidelity-serve                              # listens on PORT (default
 ```
 
 - `GET /healthz` — unauthenticated liveness check.
-- `POST /v1/runs` — bearer-authenticated (`Authorization: Bearer $ENDPOINT_API_TOKEN`).
-  The body is a single permutation (`reference` as an object or a list, `method`,
-  `translation`, `language`, `language_pairing_mode`, `language_pair`, `model`,
-  `temperature`, `reference_set_size`). The `200` response contains `status`,
-  `run_id`, `duration_seconds`, and the full package: `manifest`, `trials`,
-  `source_fixtures`, `method_configs`, `scoring_config`, and `report`.
+- `GET /version` — unauthenticated immutable build, schema, commit, dependency-lock, and prompt-template identity.
+- `POST /v1/runs` — bearer-authenticated (`Authorization: Bearer $ENDPOINT_API_TOKEN`). `ENDPOINT_API_KEY` is accepted as a backwards-compatible local alias.
+  The body is one permutation and may identify either a low-level `method` or
+  a protocol `condition`. Research callers can supply stable request/scenario
+  IDs, an exact user prompt, protocol version, repetition number, and a
+  verified source fixture. The response echoes those fields and includes the
+  full result package with per-reference trial records and provenance.
 
-The request/response models live in `scripture_fidelity/api.py`. For
+The versioned collaboration contract, examples, and release boundaries are in
+[docs/RESEARCH_API.md](docs/RESEARCH_API.md); committed JSON Schemas are in
+[`schemas/`](schemas/). The runtime models live in
+`scripture_fidelity/api.py`. For
 containerization and hosting (Google Cloud Run, with a GitHub Actions
 auto-deploy on push to `main`, plus Render/VM alternatives), see
 [docs/DEPLOY.md](docs/DEPLOY.md).
@@ -182,11 +186,11 @@ All metrics are deterministic string comparisons (no LLM judge). The quoted pass
 | `placeholder_ok` | For `buffer_transform`: whether the model emitted exactly one well-formed placeholder per requested reference. |
 | `tool_used` | For `tool_call`/`web_search`: whether the model actually invoked its assigned tool (`get_passage`/`search_web`). For multi-reference `tool_call` samples this is the *coverage*: the fraction of requested references actually looked up via `get_passage` (one call for three references scores 0.33). |
 
-A trial that disobeys its method's instructions (tool not invoked — or, for multi-reference `tool_call` samples, not invoked for every requested reference — or placeholder missing/malformed) **fails**: its fidelity metrics are zeroed (`cer` set to 1) so a model quoting accurately from memory earns no credit for a method it did not follow. `tool_used`/`placeholder_ok` still record the adherence rate, and the sample's explanation in the logs is marked `FAILED (disobeyed prompt)`.
+Observed text fidelity is never overwritten when a method instruction is disobeyed. `method_adherence` records tool/placeholder compliance, while `end_to_end_exact` is the conjunction of final-output exactness and applicable selection, lookup, replacement, and adherence components. This preserves the difference between quoting accurately from memory and successfully executing a tool-mediated condition.
 
 ### Multi-reference samples
 
-With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages and requires one attributed quote block per passage: `<quote ref="John 3:16">...</quote>`. Scoring extracts each reference's quote by its `ref` attribute (falling back to positional order for unattributed blocks) and compares it to that reference's own ground truth; the sample's metrics are the per-reference means, so a dropped passage costs its full share. For `buffer_transform`, one `{{QUOTE:<ref>}}` placeholder per reference is required. `web_search` adherence stays at "tool invoked at least once", since one search can legitimately cover several passages.
+With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages and requires one attributed quote block per passage: `<quote ref="John 3:16">...</quote>`. Scoring extracts each reference's quote by its `ref` attribute (falling back to positional order for unattributed blocks) and compares it to that reference's own ground truth. Exports retain each reference's answer and metrics plus separate request-level means and conjunctions, so a dropped passage is attributable rather than represented only by an aggregate. For `buffer_transform`, one `{{QUOTE:<ref>}}` placeholder per reference is required. `web_search` adherence stays at "tool invoked at least once", since one search can legitimately cover several passages.
 
 ## Caching
 

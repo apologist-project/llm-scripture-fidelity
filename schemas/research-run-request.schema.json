@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "ModelModel": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "supports_temperature": {
+          "default": true,
+          "title": "Supports Temperature",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ],
+      "title": "ModelModel",
+      "type": "object"
+    },
+    "ReferenceModel": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "title": "ReferenceModel",
+      "type": "object"
+    },
+    "TranslationModel": {
+      "additionalProperties": false,
+      "properties": {
+        "api": {
+          "title": "Api",
+          "type": "string"
+        },
+        "api_bible_id": {
+          "title": "Api Bible Id",
+          "type": "string"
+        },
+        "edition": {
+          "default": "",
+          "title": "Edition",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "license_basis": {
+          "default": "",
+          "title": "License Basis",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "public_release": {
+          "default": false,
+          "title": "Public Release",
+          "type": "boolean"
+        },
+        "rights": {
+          "default": "unknown",
+          "title": "Rights",
+          "type": "string"
+        },
+        "verification": {
+          "default": "",
+          "title": "Verification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "language",
+        "api",
+        "api_bible_id"
+      ],
+      "title": "TranslationModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A single study permutation. ``reference`` accepts one object or a list\n(a list makes multi-reference set sizes such as [1, 3] meaningful).",
+  "properties": {
+    "condition": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Condition"
+    },
+    "language": {
+      "default": "eng",
+      "title": "Language",
+      "type": "string"
+    },
+    "language_pair": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Language Pair",
+      "type": "array"
+    },
+    "language_pairing_mode": {
+      "default": "matched",
+      "title": "Language Pairing Mode",
+      "type": "string"
+    },
+    "method": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Method"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelModel"
+    },
+    "prompt": {
+      "default": "",
+      "title": "Prompt",
+      "type": "string"
+    },
+    "protocol_role": {
+      "default": "diagnostic",
+      "title": "Protocol Role",
+      "type": "string"
+    },
+    "protocol_version": {
+      "default": "",
+      "title": "Protocol Version",
+      "type": "string"
+    },
+    "reference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReferenceModel"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/ReferenceModel"
+          },
+          "type": "array"
+        }
+      ],
+      "title": "Reference"
+    },
+    "reference_set_size": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Reference Set Size",
+      "type": "array"
+    },
+    "repetition": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Repetition",
+      "type": "integer"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "default": "",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "source_document": {
+      "default": "",
+      "title": "Source Document",
+      "type": "string"
+    },
+    "source_fixture_id": {
+      "default": "",
+      "title": "Source Fixture Id",
+      "type": "string"
+    },
+    "temperature": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Temperature"
+    },
+    "translation": {
+      "$ref": "#/$defs/TranslationModel"
+    }
+  },
+  "required": [
+    "reference",
+    "translation",
+    "language_pair",
+    "model"
+  ],
+  "title": "RunRequest",
+  "type": "object"
+}
