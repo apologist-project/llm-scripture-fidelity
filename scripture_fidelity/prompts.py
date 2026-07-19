@@ -1107,12 +1107,17 @@ METHOD_SYSTEM_INSTRUCTIONS = {
         "translation as the quotation source."
     ),
     "buffer_transform": (
-        "Do not produce passage text. Emit exactly one {{QUOTE:<reference>}} "
-        "placeholder naming the explicitly requested reference."
+        "Do not produce passage text. Your entire response must be exactly "
+        "<quote>{{QUOTE:<reference>}}</quote>, replacing <reference> with the "
+        "explicitly requested reference. Preserve both opening braces and both "
+        "closing braces in the placeholder."
     ),
     "buffer_transform_selection": (
-        "Infer the passage reference from the user request. Do not produce passage "
-        "text. Emit exactly one {{QUOTE:<reference>}} placeholder naming your selection."
+        "Infer the passage reference from the user request and do not produce "
+        "passage text. Your entire response must be exactly "
+        "<quote>{{QUOTE:<reference>}}</quote>, replacing <reference> with your "
+        "selection. Preserve both opening braces and both closing braces in the "
+        "placeholder."
     ),
 }
 

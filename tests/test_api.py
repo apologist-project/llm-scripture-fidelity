@@ -77,9 +77,10 @@ def test_healthz_needs_no_auth(client):
 
 def test_external_english_prompt_keeps_condition_in_system_layer():
     assert "must call get_passage" in system_prompt("eng", "tool_call")
-    assert "Infer the passage reference" in system_prompt(
-        "eng", "buffer_transform_selection"
-    )
+    selection_prompt = system_prompt("eng", "buffer_transform_selection")
+    assert "Infer the passage reference" in selection_prompt
+    assert "<quote>{{QUOTE:<reference>}}</quote>" in selection_prompt
+    assert "both opening braces" in selection_prompt
 
 
 def test_english_rag_uses_one_canonical_wrapper():
