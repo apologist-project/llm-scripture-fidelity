@@ -173,6 +173,7 @@ def _print_grid(config, iterations: int) -> None:
             "temperatures",
             ["provider default" if t is None else f"{t:g}" for t in config.temperatures],
         ),
+        ("prompt families", config.prompt_families),
     ]:
         table.add_row(name, str(len(values)), ", ".join(str(v) for v in values))
     console.print(table)
@@ -184,6 +185,7 @@ def _print_grid(config, iterations: int) -> None:
         * len(pairs)
         * len(config.temperatures)
         * len(config.set_sizes)
+        * len(config.prompt_families)
     )
     console.print(
         f"Protocol role: [bold]{config.protocol_role}[/bold] | "

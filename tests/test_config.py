@@ -41,11 +41,33 @@ def test_valid_config(monkeypatch):
     assert config.translations[0].display_name == "Berean Standard Bible"
     assert config.models[0].inspect_model == "mockllm/model"
     assert config.temperatures == [0.0, 0.7]
+    assert config.prompt_families == ["method_specific"]
     assert config.set_sizes == [1]  # default
     assert config.language_pairing_mode == "matched"
     assert config.language_pairs == [("eng", "BSB")]
     assert config.protocol_role == "diagnostic"
     assert config.permutation_count() == 2 * 2 * 1 * 1 * 2
+
+
+def test_prompt_families_are_crossed_as_preregistered_treatments(monkeypatch):
+    set_env(
+        monkeypatch,
+        PROMPT_FAMILIES='["explicit_reference", "contextual_description"]',
+    )
+    config = load_config()
+
+    assert config.prompt_families == [
+        "explicit_reference",
+        "contextual_description",
+    ]
+    assert config.permutation_count() == 2 * 2 * 1 * 1 * 2 * 2
+
+
+def test_unknown_prompt_family_is_rejected(monkeypatch):
+    set_env(monkeypatch, PROMPT_FAMILIES='["marketing_copy"]')
+
+    with pytest.raises(ConfigError, match="PROMPT_FAMILIES"):
+        load_config()
 
 
 def test_together_model_enables_streaming(monkeypatch):

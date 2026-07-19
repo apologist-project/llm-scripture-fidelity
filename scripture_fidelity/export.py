@@ -172,6 +172,7 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
         "requested_model": requested_model,
         "resolved_model": resolved_model,
         "method": md.get("method"),
+        "prompt_family": md.get("prompt_family", "method_specific"),
         "translation": md.get("translation"),
         "prompt_language": md.get("prompt_language"),
         "language_match": md.get("language_match"),

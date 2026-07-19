@@ -23,6 +23,11 @@ VALID_PROVIDERS = ("openai", "anthropic", "google", "together", "xai", "mockllm"
 VALID_PAIRING_MODES = ("matched", "crossed")
 VALID_PROTOCOL_ROLES = ("diagnostic", "confirmatory", "robustness", "exploratory")
 VALID_RIGHTS = ("open", "restricted", "unknown")
+VALID_PROMPT_FAMILIES = (
+    "method_specific",
+    "explicit_reference",
+    "contextual_description",
+)
 
 # Study provider name -> Inspect provider prefix (where they differ)
 _INSPECT_PROVIDER_ALIASES = {"xai": "grok"}
@@ -104,6 +109,7 @@ class StudyConfig:
     languages: list[str] = field(default_factory=list)
     models: list[ModelConfig] = field(default_factory=list)
     temperatures: list[float | None] = field(default_factory=list)
+    prompt_families: list[str] = field(default_factory=lambda: ["method_specific"])
     set_sizes: list[int] = field(default_factory=lambda: [1])
     language_pairing_mode: str = "matched"
     language_pairs: list[tuple[str, str]] = field(default_factory=list)
@@ -162,6 +168,7 @@ class StudyConfig:
             "language_pairs": len(self.variant_pairs()),
             "models": len(self.models),
             "temperatures": len(self.temperatures),
+            "prompt_families": len(self.prompt_families),
         }
 
     def permutation_count(self) -> int:
@@ -171,6 +178,7 @@ class StudyConfig:
             * len(self.variant_pairs())
             * len(self.models)
             * len(self.temperatures)
+            * len(self.prompt_families)
         )
 
     def to_dict(self) -> dict:
@@ -185,6 +193,7 @@ class StudyConfig:
             "protocol_role": self.protocol_role,
             "models": [vars(m) for m in self.models],
             "temperatures": list(self.temperatures),
+            "prompt_families": list(self.prompt_families),
             "request_context": {
                 "request_id": self.request_id or None,
                 "scenario_id": self.scenario_id or None,
@@ -222,6 +231,9 @@ class StudyConfig:
                 None if t is None else float(t)
                 for t in data.get("temperatures", [])
             ],
+            prompt_families=list(
+                data.get("prompt_families", ["method_specific"])
+            ),
             set_sizes=list(data.get("set_sizes", [1])),
             language_pairing_mode=data.get("language_pairing_mode", "matched"),
             language_pairs=[tuple(p) for p in data.get("language_pairs", [])],
@@ -356,6 +368,20 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         None if t is None else float(t)
         for t in _load_json_env("TEMPERATURES")
     ]
+    prompt_families = [
+        str(item)
+        for item in _load_json_env(
+            "PROMPT_FAMILIES", default=["method_specific"]
+        )
+    ]
+    unknown_prompt_families = sorted(
+        set(prompt_families) - set(VALID_PROMPT_FAMILIES)
+    )
+    if unknown_prompt_families:
+        raise ConfigError(
+            f"Unknown PROMPT_FAMILIES {unknown_prompt_families} "
+            f"(expected values from {VALID_PROMPT_FAMILIES})"
+        )
     if any(not model.supports_temperature for model in models) and temperatures != [None]:
         unsupported = [m.inspect_model for m in models if not m.supports_temperature]
         raise ConfigError(
@@ -482,6 +508,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         languages=languages,
         models=models,
         temperatures=temperatures,
+        prompt_families=prompt_families,
         set_sizes=set_sizes,
         language_pairing_mode=pairing_mode,
         language_pairs=language_pairs,

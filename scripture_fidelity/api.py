@@ -232,7 +232,7 @@ async def version() -> dict:
 _STUDY_ENV_VARS = (
     "REFERENCES", "METHODS", "TRANSLATIONS", "LANGUAGES",
     "LANGUAGE_PAIRING_MODE", "LANGUAGE_PAIRS", "PROTOCOL_ROLE",
-    "MODELS", "TEMPERATURES", "REFERENCE_SET_SIZES",
+    "MODELS", "TEMPERATURES", "REFERENCE_SET_SIZES", "PROMPT_FAMILIES",
 )
 
 
@@ -255,6 +255,7 @@ def _build_config(req: RunRequest):
         "MODELS": json.dumps([req.model.model_dump()]),
         "TEMPERATURES": json.dumps([req.temperature]),
         "REFERENCE_SET_SIZES": json.dumps(req.reference_set_size),
+        "PROMPT_FAMILIES": json.dumps(["method_specific"]),
     }
     saved = {k: os.environ.get(k) for k in _STUDY_ENV_VARS}
     try:

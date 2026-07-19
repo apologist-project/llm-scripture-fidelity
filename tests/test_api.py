@@ -116,6 +116,46 @@ def test_non_english_system_prompt_does_not_append_english_treatment():
     assert "must call get_passage" not in prompt
 
 
+def test_neutral_prompt_family_keeps_caller_wording_constant_across_methods():
+    passage = Passage(
+        reference="John 3:16",
+        translation_id="BSB",
+        verses=[Verse(chapter=3, number=16, text=TRUTH)],
+    )
+    ref = ReferenceConfig(
+        ref="John 3:16",
+        type="well_known_single",
+        description="God gives His one and only Son.",
+    )
+    translation = TranslationConfig(
+        id="BSB", language="eng", api="ao_lab", api_bible_id="BSB"
+    )
+    samples = [
+        build_sample(
+            ref=ref,
+            method=method,
+            translation=translation,
+            language="eng",
+            temperature=None,
+            passage=passage,
+            prompt_family="contextual_description",
+        )
+        for method in (
+            "unassisted",
+            "rag",
+            "tool_call",
+            "buffer_transform_selection",
+        )
+    ]
+
+    assert len({sample.metadata["prompt_sha256"] for sample in samples}) == 1
+    assert all(
+        sample.metadata["prompt_family"] == "contextual_description"
+        for sample in samples
+    )
+    assert "John 3:16" not in samples[0].input
+
+
 def test_version_needs_no_auth_and_reports_build(client):
     body = client.get("/version").json()
     assert body["status"] == "ok"

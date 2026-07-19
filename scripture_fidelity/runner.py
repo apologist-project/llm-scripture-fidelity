@@ -16,9 +16,9 @@ from scripture_fidelity.references import parse_reference
 from scripture_fidelity.task import build_task
 
 
-# Retry policy applied to every eval (see run_study) — surfaced in dry-run
-# call accounting so the upper bound on provider calls is visible up front.
-RETRY_ON_ERROR = 3
+# Failed samples remain failed observations. Provider-level HTTP retries are
+# bounded separately and do not create replacement semantic observations.
+RETRY_ON_ERROR = 0
 MAX_HTTP_RETRIES = 5
 
 # Generation/sampling controls applied to every eval. Only temperature is
@@ -57,6 +57,7 @@ def call_accounting(config: StudyConfig, epochs: int) -> dict[str, int]:
         * len(config.models)
         * len(config.temperatures)
         * len(config.set_sizes)
+        * len(config.prompt_families)
         * epochs
     )
     max_generation_attempts = planned_requests * (1 + RETRY_ON_ERROR)
@@ -149,12 +150,14 @@ def build_tasks(
             prompt_override=config.prompt_override,
             request_context=request_context,
             source_document_override=config.source_document_override,
+            prompt_family=prompt_family,
         )
-        for method, (language, translation), temperature, set_size in itertools.product(
+        for method, (language, translation), temperature, set_size, prompt_family in itertools.product(
             config.methods,
             config.variant_pairs(),
             config.temperatures,
             config.set_sizes,
+            config.prompt_families,
         )
     ]
 
@@ -223,8 +226,8 @@ def _run_eval(
         max_connections=max_connections,
         max_tasks=max_tasks,
         display=display,
-        # A single flaky sample (e.g. transient provider error) must not
-        # abort a large grid: retry it, then record the error and move on.
+        # Preserve failed samples as missing/error observations rather than
+        # replacing them with a later semantic generation.
         retry_on_error=RETRY_ON_ERROR,
         fail_on_error=False,
         # Without these, Inspect retries transient HTTP errors *forever*
