@@ -83,7 +83,7 @@ def load_rows(log_dir: str | Path) -> list[TrialRow]:
                     prompt_family=md.get("prompt_family", "method_specific"),
                     translation=md.get("translation", "?"),
                     language=md.get("prompt_language", "?"),
-                    temperature=float(md.get("temperature", 0.0)),
+                    temperature=float(md.get("temperature") or 0.0),
                     reference=md.get("reference", str(sample.id)),
                     ref_type=md.get("ref_type", "?"),
                     epoch=sample.epoch,
