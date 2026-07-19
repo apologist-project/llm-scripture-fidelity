@@ -260,6 +260,12 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
     else:
         load_dotenv()
 
+    # Inspect names the xAI provider ``grok`` and therefore reads
+    # GROK_API_KEY. Keep the repository's public XAI_API_KEY contract while
+    # supplying the provider-specific alias in-process.
+    if os.environ.get("XAI_API_KEY") and not os.environ.get("GROK_API_KEY"):
+        os.environ["GROK_API_KEY"] = os.environ["XAI_API_KEY"]
+
     from scripture_fidelity.references import infer_type, parse_reference
 
     references = []

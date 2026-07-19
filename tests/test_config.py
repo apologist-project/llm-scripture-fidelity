@@ -1,5 +1,7 @@
 """Tests for .env-based study configuration loading."""
 
+import os
+
 import pytest
 
 from scripture_fidelity.config import ConfigError, load_config
@@ -58,6 +60,16 @@ def test_together_model_enables_streaming(monkeypatch):
     # Together requires streaming for some models; other providers unaffected.
     assert together.model_args == {"stream": True}
     assert openai.model_args == {}
+
+
+def test_xai_key_is_bridged_to_inspect_grok_provider(monkeypatch):
+    set_env(monkeypatch)
+    monkeypatch.setenv("XAI_API_KEY", "test-xai-key")
+    monkeypatch.delenv("GROK_API_KEY", raising=False)
+
+    load_config()
+
+    assert os.environ["GROK_API_KEY"] == "test-xai-key"
 
 
 def test_model_can_require_provider_default_temperature(monkeypatch):
