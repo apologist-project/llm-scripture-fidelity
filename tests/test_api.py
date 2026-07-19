@@ -195,21 +195,13 @@ def test_caller_controlled_prompt_and_ids_are_preserved(client):
     assert len(trial["prompt_sha256"]) == 64
 
 
-def test_source_document_is_restricted_to_generated_rag_prompt(client):
+def test_source_document_is_restricted_to_rag_condition(client):
     bad_method = client.post(
         "/v1/runs",
         json=make_request(source_document=TRUTH),
         headers=auth(),
     )
     assert bad_method.status_code == 422
-
-    conflicting_prompt = client.post(
-        "/v1/runs",
-        json=make_request(method="rag", source_document=TRUTH, prompt="Exact prompt"),
-        headers=auth(),
-    )
-    assert conflicting_prompt.status_code == 422
-
 
 def test_verified_source_document_provenance_is_exported(client):
     expected_fixture_id = "ao_lab:BSB:BSB:JHN.3.16"
@@ -218,6 +210,7 @@ def test_verified_source_document_provenance_is_exported(client):
         json=make_request(
             method=None,
             condition="source_supplied_quote",
+            prompt="Quote John 3:16 from the BSB exactly.",
             source_document=TRUTH,
             source_fixture_id=expected_fixture_id,
         ),
@@ -230,6 +223,7 @@ def test_verified_source_document_provenance_is_exported(client):
     assert trial["source_document_sha256"] == hashlib.sha256(
         TRUTH.encode("utf-8")
     ).hexdigest()
+    assert trial["prompt_sha256"] != trial["model_input_sha256"]
 
 
 def test_source_fixture_mismatch_is_422_before_execution(client):

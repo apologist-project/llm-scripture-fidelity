@@ -18,6 +18,31 @@ from scripture_fidelity.solvers import solver_chain
 SCORER_NAME = "quotation_fidelity"
 
 
+def _model_input(
+    generated_prompt: str,
+    *,
+    method: str,
+    prompt_override: str,
+    source_document_override: str,
+) -> tuple[str, str]:
+    """Return the caller prompt and effective model input.
+
+    Source-supplied research requests keep the caller's user request intact and
+    add the authoritative document through a versioned harness wrapper.
+    """
+    caller_prompt = prompt_override or generated_prompt
+    if method == "rag" and prompt_override and source_document_override:
+        return caller_prompt, (
+            "<authoritative_source>\n"
+            f"{source_document_override}\n"
+            "</authoritative_source>\n\n"
+            "<user_request>\n"
+            f"{caller_prompt}\n"
+            "</user_request>"
+        )
+    return caller_prompt, caller_prompt
+
+
 def variant_name(
     method: str,
     translation: TranslationConfig,
@@ -45,7 +70,7 @@ def build_sample(
     request_context: dict | None = None,
     source_document_override: str = "",
 ) -> Sample:
-    prompt = build_prompt(
+    generated_prompt = build_prompt(
         language=language,
         method=method,
         reference=ref.ref,
@@ -58,8 +83,12 @@ def build_sample(
         ),
         description=ref.description,
     )
-    if prompt_override:
-        prompt = prompt_override
+    caller_prompt, prompt = _model_input(
+        generated_prompt,
+        method=method,
+        prompt_override=prompt_override,
+        source_document_override=source_document_override,
+    )
     request_context = request_context or {}
     return Sample(
         id=request_context.get("scenario_id") or ref.ref,
@@ -87,7 +116,8 @@ def build_sample(
             "protocol_version": request_context.get("protocol_version") or None,
             "repetition": int(request_context.get("repetition", 1)),
             "prompt_source": "caller" if prompt_override else "generated",
-            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "prompt_sha256": hashlib.sha256(caller_prompt.encode("utf-8")).hexdigest(),
+            "model_input_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
             ),

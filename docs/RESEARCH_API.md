@@ -67,10 +67,12 @@ condition from output quality.
 - `source_fixture_id`: expected authoritative fixture identity. The server
   rejects a mismatch before model execution.
 - `source_document`: caller-supplied source text for a one-reference
-  `source_supplied_quote` request. It cannot be combined with `prompt`, because
-  an exact prompt may already contain its own source context.
+  `source_supplied_quote` request. When combined with `prompt`, the caller's
+  exact user request is preserved and the document is added through the pinned
+  harness context wrapper.
 
-The export records the prompt hash and whether it was caller-supplied. API runs
+The export records the caller-prompt hash, effective model-input hash, and
+whether the prompt was caller-supplied. API runs
 delete their temporary Inspect logs, so callers must retain their submitted
 prompt registry; generated prompts are recoverable from the pinned template
 version and inputs. Raw and final outputs are returned to the caller with
