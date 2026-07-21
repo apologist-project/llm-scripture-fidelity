@@ -45,7 +45,8 @@ class TranslationModel(StrictModel):
     id: str
     language: str
     api: str
-    api_bible_id: str
+    # Empty for single-translation APIs such as esv (no provider Bible id).
+    api_bible_id: str = ""
     name: str = ""
     rights: str = "unknown"
     verification: str = ""
@@ -58,6 +59,7 @@ class ModelModel(StrictModel):
     provider: str
     model: str
     supports_temperature: bool = True
+    provider_routing: dict = Field(default_factory=dict)
 
 
 CONDITION_METHODS = {

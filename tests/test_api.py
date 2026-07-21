@@ -116,7 +116,12 @@ def test_non_english_system_prompt_does_not_append_english_treatment():
     assert "must call get_passage" not in prompt
 
 
-def test_neutral_prompt_family_keeps_caller_wording_constant_across_methods():
+@pytest.mark.parametrize(
+    "prompt_family", ["explicit_reference", "contextual_description"]
+)
+def test_neutral_prompt_family_keeps_caller_wording_constant_across_methods(
+    prompt_family,
+):
     passage = Passage(
         reference="John 3:16",
         translation_id="BSB",
@@ -138,7 +143,7 @@ def test_neutral_prompt_family_keeps_caller_wording_constant_across_methods():
             language="eng",
             temperature=None,
             passage=passage,
-            prompt_family="contextual_description",
+            prompt_family=prompt_family,
         )
         for method in (
             "unassisted",
@@ -150,10 +155,13 @@ def test_neutral_prompt_family_keeps_caller_wording_constant_across_methods():
 
     assert len({sample.metadata["prompt_sha256"] for sample in samples}) == 1
     assert all(
-        sample.metadata["prompt_family"] == "contextual_description"
+        sample.metadata["prompt_family"] == prompt_family
         for sample in samples
     )
-    assert "John 3:16" not in samples[0].input
+    if prompt_family == "contextual_description":
+        assert "John 3:16" not in samples[0].input
+    else:
+        assert "John 3:16" in samples[0].input
 
 
 def test_version_needs_no_auth_and_reports_build(client):

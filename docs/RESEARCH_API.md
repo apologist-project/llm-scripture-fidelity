@@ -97,6 +97,13 @@ value means provider default, not temperature zero. Record model aliases only
 when the provider documents their resolution; the response separately records
 requested and resolved model identifiers where Inspect exposes both.
 
+For confirmatory OpenRouter execution, the model object must include a
+`provider_routing` object that pins exactly one upstream provider, sets
+`allow_fallbacks` to `false`, sets `require_parameters` to `true`, and sets
+`data_collection` to `deny`. The applied object is retained in the run
+manifest. Diagnostic runs may omit it, but those results must not be represented
+as a stable confirmatory route.
+
 ## Response and analysis unit
 
 The API returns one request package. `trials` contains one row per requested

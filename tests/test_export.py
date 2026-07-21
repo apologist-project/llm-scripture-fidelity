@@ -176,6 +176,28 @@ def test_manifest_records_provider_model_args():
     }
 
 
+def test_manifest_records_openrouter_provider_routing():
+    routing = {
+        "order": ["anthropic"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+        "data_collection": "deny",
+    }
+    config = make_config(
+        models=[
+            ModelConfig(
+                provider="openrouter",
+                model="anthropic/claude-sonnet-5",
+                provider_routing=routing,
+            )
+        ]
+    )
+    manifest = build_run_manifest(config, [make_trial_row()], epochs=1)
+    assert manifest["model_args"] == {
+        "openrouter/anthropic/claude-sonnet-5": {"provider": routing}
+    }
+
+
 def test_multi_reference_rows_share_request_id_and_regroup(tmp_path):
     from scripture_fidelity.report.data import rows_from_export
 

@@ -84,6 +84,45 @@ def test_together_model_enables_streaming(monkeypatch):
     assert openai.model_args == {}
 
 
+def test_openrouter_model_applies_and_round_trips_locked_routing(monkeypatch):
+    from scripture_fidelity.config import StudyConfig
+
+    routing = (
+        '{"order": ["anthropic"], "allow_fallbacks": false, '
+        '"require_parameters": true, "data_collection": "deny"}'
+    )
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "openrouter", '
+            '"model": "anthropic/claude-sonnet-5", '
+            f'"provider_routing": {routing}}}]'
+        ),
+    )
+    config = load_config()
+    assert config.models[0].model_args == {
+        "provider": {
+            "order": ["anthropic"],
+            "allow_fallbacks": False,
+            "require_parameters": True,
+            "data_collection": "deny",
+        }
+    }
+    assert StudyConfig.from_dict(config.to_dict()) == config
+
+
+def test_provider_routing_is_rejected_for_direct_provider(monkeypatch):
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "openai", "model": "gpt-5.6-sol", '
+            '"provider_routing": {"allow_fallbacks": false}}]'
+        ),
+    )
+    with pytest.raises(ConfigError, match="only for openrouter"):
+        load_config()
+
+
 def test_xai_key_is_bridged_to_inspect_grok_provider(monkeypatch):
     set_env(monkeypatch)
     monkeypatch.setenv("XAI_API_KEY", "test-xai-key")
@@ -187,6 +226,32 @@ def test_unknown_api(monkeypatch):
         ),
     )
     with pytest.raises(ConfigError, match="nope"):
+        load_config()
+
+
+def test_esv_translation_omits_api_bible_id(monkeypatch):
+    set_env(
+        monkeypatch,
+        TRANSLATIONS=(
+            '[{"id": "ESV", "name": "English Standard Version",'
+            ' "language": "eng", "api": "esv"}]'
+        ),
+        LANGUAGE_PAIRS='[["eng", "ESV"]]',
+    )
+    config = load_config()
+    assert config.translations[0].api == "esv"
+    assert config.translations[0].api_bible_id == ""
+
+
+def test_non_esv_translation_requires_api_bible_id(monkeypatch):
+    set_env(
+        monkeypatch,
+        TRANSLATIONS=(
+            '[{"id": "BSB", "name": "Berean Standard Bible",'
+            ' "language": "eng", "api": "ao_lab"}]'
+        ),
+    )
+    with pytest.raises(ConfigError, match="api_bible_id"):
         load_config()
 
 
@@ -419,6 +484,64 @@ def test_confirmatory_accepts_single_valued_grid(monkeypatch):
     )
     config = load_config()
     assert config.protocol_role == "confirmatory"
+
+
+@pytest.mark.parametrize(
+    ("routing", "message"),
+    [
+        ({}, "exactly one upstream"),
+        (
+            {
+                "order": ["anthropic"],
+                "allow_fallbacks": True,
+                "require_parameters": True,
+                "data_collection": "deny",
+            },
+            "allow_fallbacks=false",
+        ),
+        (
+            {
+                "order": ["anthropic"],
+                "allow_fallbacks": False,
+                "require_parameters": False,
+                "data_collection": "deny",
+            },
+            "require_parameters=true",
+        ),
+        (
+            {
+                "order": ["anthropic"],
+                "allow_fallbacks": False,
+                "require_parameters": True,
+                "data_collection": "allow",
+            },
+            "data_collection='deny'",
+        ),
+    ],
+)
+def test_confirmatory_openrouter_requires_locked_routing(
+    monkeypatch, routing, message
+):
+    import json
+
+    model = {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-5",
+        "provider_routing": routing,
+    }
+    set_env(
+        monkeypatch,
+        PROTOCOL_ROLE="confirmatory",
+        TEMPERATURES="[null]",
+        MODELS=json.dumps([model]),
+        TRANSLATIONS=(
+            '[{"id": "BSB", "language": "eng", "api": "ao_lab", '
+            '"api_bible_id": "BSB", "rights": "open", '
+            '"edition": "2023", "license_basis": "public domain"}]'
+        ),
+    )
+    with pytest.raises(ConfigError, match=message):
+        load_config()
 
 
 def test_confirmatory_requires_source_provenance(monkeypatch):

@@ -18,8 +18,16 @@ VALID_METHODS = (
     "buffer_transform_selection",
     "web_search",
 )
-VALID_APIS = ("ao_lab", "api_bible", "youversion")
-VALID_PROVIDERS = ("openai", "anthropic", "google", "together", "xai", "mockllm")
+VALID_APIS = ("ao_lab", "api_bible", "esv", "youversion")
+VALID_PROVIDERS = (
+    "openai",
+    "anthropic",
+    "google",
+    "together",
+    "xai",
+    "openrouter",
+    "mockllm",
+)
 VALID_PAIRING_MODES = ("matched", "crossed")
 VALID_PROTOCOL_ROLES = ("diagnostic", "confirmatory", "robustness", "exploratory")
 VALID_RIGHTS = ("open", "restricted", "unknown")
@@ -88,6 +96,7 @@ class ModelConfig:
     provider: str
     model: str
     supports_temperature: bool = True
+    provider_routing: dict = field(default_factory=dict)
 
     @property
     def inspect_model(self) -> str:
@@ -98,7 +107,10 @@ class ModelConfig:
     def model_args(self) -> dict:
         """Provider-specific Inspect model args for this model (empty for
         providers with no special requirements)."""
-        return dict(_PROVIDER_MODEL_ARGS.get(self.provider, {}))
+        args = dict(_PROVIDER_MODEL_ARGS.get(self.provider, {}))
+        if self.provider_routing:
+            args["provider"] = dict(self.provider_routing)
+        return args
 
 
 @dataclass
@@ -302,7 +314,11 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
 
     translations = []
     for item in _load_json_env("TRANSLATIONS"):
-        missing = {"id", "language", "api", "api_bible_id"} - set(item)
+        # esv is a single-translation API with no provider Bible id.
+        required = {"id", "language", "api"}
+        if item.get("api") != "esv":
+            required.add("api_bible_id")
+        missing = required - set(item)
         if missing:
             raise ConfigError(f"TRANSLATIONS entry missing {sorted(missing)}: {item}")
         if item["api"] not in VALID_APIS:
@@ -319,7 +335,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 id=item["id"],
                 language=item["language"],
                 api=item["api"],
-                api_bible_id=str(item["api_bible_id"]),
+                api_bible_id=str(item.get("api_bible_id", "")),
                 name=item.get("name", ""),
                 rights=rights,
                 verification=item.get("verification", ""),
@@ -356,11 +372,22 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 "MODELS supports_temperature must be true or false: "
                 f"{supports_temperature!r}"
             )
+        provider_routing = item.get("provider_routing", {})
+        if not isinstance(provider_routing, dict):
+            raise ConfigError(
+                "MODELS provider_routing must be an object: "
+                f"{provider_routing!r}"
+            )
+        if provider_routing and item["provider"] != "openrouter":
+            raise ConfigError(
+                "MODELS provider_routing is supported only for openrouter models"
+            )
         models.append(
             ModelConfig(
                 provider=item["provider"],
                 model=item["model"],
                 supports_temperature=supports_temperature,
+                provider_routing=provider_routing,
             )
         )
 
@@ -487,6 +514,31 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 "Restricted translations in confirmatory runs require a "
                 f"verification mode; incomplete: {unverified_restricted}"
             )
+        for model in models:
+            if model.provider != "openrouter":
+                continue
+            routing = model.provider_routing
+            order = routing.get("order")
+            if not isinstance(order, list) or len(order) != 1 or not order[0]:
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require provider_routing.order "
+                    "with exactly one upstream provider slug"
+                )
+            if routing.get("allow_fallbacks") is not False:
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require "
+                    "provider_routing.allow_fallbacks=false"
+                )
+            if routing.get("require_parameters") is not True:
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require "
+                    "provider_routing.require_parameters=true"
+                )
+            if routing.get("data_collection") != "deny":
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require "
+                    "provider_routing.data_collection='deny'"
+                )
 
     if "buffer_transform_selection" in methods:
         missing_desc = [r.ref for r in references if not r.description]
