@@ -18,8 +18,16 @@ VALID_METHODS = (
     "buffer_transform_selection",
     "web_search",
 )
-VALID_APIS = ("ao_lab", "api_bible", "youversion")
-VALID_PROVIDERS = ("openai", "anthropic", "google", "together", "xai", "mockllm")
+VALID_APIS = ("ao_lab", "api_bible", "esv", "youversion")
+VALID_PROVIDERS = (
+    "openai",
+    "anthropic",
+    "google",
+    "together",
+    "xai",
+    "openrouter",
+    "mockllm",
+)
 VALID_PAIRING_MODES = ("matched", "crossed")
 VALID_PROTOCOL_ROLES = ("diagnostic", "confirmatory", "robustness", "exploratory")
 VALID_RIGHTS = ("open", "restricted", "unknown")
@@ -284,7 +292,11 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
 
     translations = []
     for item in _load_json_env("TRANSLATIONS"):
-        missing = {"id", "language", "api", "api_bible_id"} - set(item)
+        # esv is a single-translation API with no provider Bible id.
+        required = {"id", "language", "api"}
+        if item.get("api") != "esv":
+            required.add("api_bible_id")
+        missing = required - set(item)
         if missing:
             raise ConfigError(f"TRANSLATIONS entry missing {sorted(missing)}: {item}")
         if item["api"] not in VALID_APIS:
@@ -301,7 +313,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 id=item["id"],
                 language=item["language"],
                 api=item["api"],
-                api_bible_id=str(item["api_bible_id"]),
+                api_bible_id=str(item.get("api_bible_id", "")),
                 name=item.get("name", ""),
                 rights=rights,
                 verification=item.get("verification", ""),

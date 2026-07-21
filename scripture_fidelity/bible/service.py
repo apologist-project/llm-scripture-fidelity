@@ -10,6 +10,7 @@ from scripture_fidelity.bible.api_bible import APIBibleProvider
 from scripture_fidelity.bible.base import BibleProvider, Passage
 from scripture_fidelity.bible.cache import DEFAULT_CACHE_DIR, PassageCache
 from scripture_fidelity.bible.ao_lab import AOLabProvider
+from scripture_fidelity.bible.esv import ESVProvider
 from scripture_fidelity.bible.youversion import YouVersionProvider
 from scripture_fidelity.config import TranslationConfig
 from scripture_fidelity.references import Reference, parse_reference
@@ -17,6 +18,7 @@ from scripture_fidelity.references import Reference, parse_reference
 _PROVIDERS: dict[str, type[BibleProvider]] = {
     "ao_lab": AOLabProvider,
     "api_bible": APIBibleProvider,
+    "esv": ESVProvider,
     "youversion": YouVersionProvider,
 }
 

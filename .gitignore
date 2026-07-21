@@ -220,3 +220,6 @@ __marimo__/
 
 # JetBrains
 .idea/
+
+# Other
+.DS_Store

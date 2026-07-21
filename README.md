@@ -40,9 +40,9 @@ cp .env.example .env
 |---|---|
 | `REFERENCES` | Scripture references to test. Each entry is a string (`"John 3:16"`) or an object with a grouping label: `{"ref": "Psalm 117", "type": "chapter"}`. Supports single verses, ranges (`Romans 8:38-39`), cross-chapter ranges (`Luke 9:57-10:2`), and whole chapters. When `type` is omitted it is inferred (`single`/`range`/`chapter`). |
 | `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `buffer_transform`, `buffer_transform_selection`, `web_search`. |
-| `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and `api_bible_id` (the provider-specific identifier). Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
+| `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and usually `api_bible_id` (the provider-specific identifier; omit or leave empty for single-translation APIs such as `esv`). Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
 | `LANGUAGES` | Available prompt languages. In `matched` mode only declared `LANGUAGE_PAIRS` run; a full cross-product requires an explicitly exploratory `crossed` configuration. |
-| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), and `mockllm` (for testing without API calls). |
+| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), `openrouter` (model ids are `vendor/model`, e.g. `anthropic/claude-sonnet-4`), and `mockllm` (for testing without API calls). |
 | `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. Use `[null]` to omit temperature and use the provider default. |
 | `REFERENCE_SET_SIZES` | Optional (default `[1]`). Reference set sizes, e.g. `[1, 3]`. For each size > 1 the references list is chunked (in order) into sets of that size, and each set becomes a single prompt asking for all of its passages at once — probing whether models handle every requested reference (e.g. calling `get_passage` once per reference). Size 1 reproduces standard single-reference samples. |
 
@@ -56,6 +56,7 @@ The `api` field of each translation selects the provider:
 |---|---|---|
 | `ao_lab` | [AO Lab Free Use Bible API](https://bible.helloao.org/) | None |
 | `api_bible` | [API.Bible](https://scripture.api.bible/) | `API_BIBLE_API_KEY` |
+| `esv` | [ESV API](https://api.esv.org/docs/) (English only; no `api_bible_id`) | `ESV_API_KEY` |
 | `youversion` | [YouVersion Platform](https://platform.youversion.com/) | `YOUVERSION_API_KEY` |
 
 Discover provider-specific translation IDs with:
@@ -69,8 +70,8 @@ scripture-fidelity list-bibles --api api_bible --language zho
 
 Set only the keys you need in `.env` (never commit it — it is gitignored):
 
-- Model providers: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `TOGETHER_API_KEY`, `XAI_API_KEY`
-- Bible APIs: `API_BIBLE_API_KEY`, `YOUVERSION_API_KEY`
+- Model providers: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `TOGETHER_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`
+- Bible APIs: `API_BIBLE_API_KEY`, `ESV_API_KEY`, `YOUVERSION_API_KEY`
 - Web search: `PARALLEL_API_KEY` (required only when `web_search` is in `METHODS`)
 
 ## Running the study

@@ -63,6 +63,7 @@
           "type": "string"
         },
         "api_bible_id": {
+          "default": "",
           "title": "Api Bible Id",
           "type": "string"
         },
@@ -108,8 +109,7 @@
       "required": [
         "id",
         "language",
-        "api",
-        "api_bible_id"
+        "api"
       ],
       "title": "TranslationModel",
       "type": "object"

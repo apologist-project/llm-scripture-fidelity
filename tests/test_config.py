@@ -156,6 +156,32 @@ def test_unknown_api(monkeypatch):
         load_config()
 
 
+def test_esv_translation_omits_api_bible_id(monkeypatch):
+    set_env(
+        monkeypatch,
+        TRANSLATIONS=(
+            '[{"id": "ESV", "name": "English Standard Version",'
+            ' "language": "eng", "api": "esv"}]'
+        ),
+        LANGUAGE_PAIRS='[["eng", "ESV"]]',
+    )
+    config = load_config()
+    assert config.translations[0].api == "esv"
+    assert config.translations[0].api_bible_id == ""
+
+
+def test_non_esv_translation_requires_api_bible_id(monkeypatch):
+    set_env(
+        monkeypatch,
+        TRANSLATIONS=(
+            '[{"id": "BSB", "name": "Berean Standard Bible",'
+            ' "language": "eng", "api": "ao_lab"}]'
+        ),
+    )
+    with pytest.raises(ConfigError, match="api_bible_id"):
+        load_config()
+
+
 def test_bad_reference(monkeypatch):
     set_env(monkeypatch, REFERENCES='["Hezekiah 3:16"]')
     with pytest.raises(Exception, match="Hezekiah"):
