@@ -31,6 +31,11 @@ VALID_PROVIDERS = (
 VALID_PAIRING_MODES = ("matched", "crossed")
 VALID_PROTOCOL_ROLES = ("diagnostic", "confirmatory", "robustness", "exploratory")
 VALID_RIGHTS = ("open", "restricted", "unknown")
+VALID_PROMPT_FAMILIES = (
+    "method_specific",
+    "explicit_reference",
+    "contextual_description",
+)
 
 # Study provider name -> Inspect provider prefix (where they differ)
 _INSPECT_PROVIDER_ALIASES = {"xai": "grok"}
@@ -91,6 +96,7 @@ class ModelConfig:
     provider: str
     model: str
     supports_temperature: bool = True
+    provider_routing: dict = field(default_factory=dict)
 
     @property
     def inspect_model(self) -> str:
@@ -101,7 +107,10 @@ class ModelConfig:
     def model_args(self) -> dict:
         """Provider-specific Inspect model args for this model (empty for
         providers with no special requirements)."""
-        return dict(_PROVIDER_MODEL_ARGS.get(self.provider, {}))
+        args = dict(_PROVIDER_MODEL_ARGS.get(self.provider, {}))
+        if self.provider_routing:
+            args["provider"] = dict(self.provider_routing)
+        return args
 
 
 @dataclass
@@ -112,6 +121,7 @@ class StudyConfig:
     languages: list[str] = field(default_factory=list)
     models: list[ModelConfig] = field(default_factory=list)
     temperatures: list[float | None] = field(default_factory=list)
+    prompt_families: list[str] = field(default_factory=lambda: ["method_specific"])
     set_sizes: list[int] = field(default_factory=lambda: [1])
     language_pairing_mode: str = "matched"
     language_pairs: list[tuple[str, str]] = field(default_factory=list)
@@ -170,6 +180,7 @@ class StudyConfig:
             "language_pairs": len(self.variant_pairs()),
             "models": len(self.models),
             "temperatures": len(self.temperatures),
+            "prompt_families": len(self.prompt_families),
         }
 
     def permutation_count(self) -> int:
@@ -179,6 +190,7 @@ class StudyConfig:
             * len(self.variant_pairs())
             * len(self.models)
             * len(self.temperatures)
+            * len(self.prompt_families)
         )
 
     def to_dict(self) -> dict:
@@ -193,6 +205,7 @@ class StudyConfig:
             "protocol_role": self.protocol_role,
             "models": [vars(m) for m in self.models],
             "temperatures": list(self.temperatures),
+            "prompt_families": list(self.prompt_families),
             "request_context": {
                 "request_id": self.request_id or None,
                 "scenario_id": self.scenario_id or None,
@@ -230,6 +243,9 @@ class StudyConfig:
                 None if t is None else float(t)
                 for t in data.get("temperatures", [])
             ],
+            prompt_families=list(
+                data.get("prompt_families", ["method_specific"])
+            ),
             set_sizes=list(data.get("set_sizes", [1])),
             language_pairing_mode=data.get("language_pairing_mode", "matched"),
             language_pairs=[tuple(p) for p in data.get("language_pairs", [])],
@@ -267,6 +283,12 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         load_dotenv(env_file, override=True)
     else:
         load_dotenv()
+
+    # Inspect names the xAI provider ``grok`` and therefore reads
+    # GROK_API_KEY. Keep the repository's public XAI_API_KEY contract while
+    # supplying the provider-specific alias in-process.
+    if os.environ.get("XAI_API_KEY") and not os.environ.get("GROK_API_KEY"):
+        os.environ["GROK_API_KEY"] = os.environ["XAI_API_KEY"]
 
     from scripture_fidelity.references import infer_type, parse_reference
 
@@ -350,11 +372,22 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 "MODELS supports_temperature must be true or false: "
                 f"{supports_temperature!r}"
             )
+        provider_routing = item.get("provider_routing", {})
+        if not isinstance(provider_routing, dict):
+            raise ConfigError(
+                "MODELS provider_routing must be an object: "
+                f"{provider_routing!r}"
+            )
+        if provider_routing and item["provider"] != "openrouter":
+            raise ConfigError(
+                "MODELS provider_routing is supported only for openrouter models"
+            )
         models.append(
             ModelConfig(
                 provider=item["provider"],
                 model=item["model"],
                 supports_temperature=supports_temperature,
+                provider_routing=provider_routing,
             )
         )
 
@@ -362,6 +395,20 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         None if t is None else float(t)
         for t in _load_json_env("TEMPERATURES")
     ]
+    prompt_families = [
+        str(item)
+        for item in _load_json_env(
+            "PROMPT_FAMILIES", default=["method_specific"]
+        )
+    ]
+    unknown_prompt_families = sorted(
+        set(prompt_families) - set(VALID_PROMPT_FAMILIES)
+    )
+    if unknown_prompt_families:
+        raise ConfigError(
+            f"Unknown PROMPT_FAMILIES {unknown_prompt_families} "
+            f"(expected values from {VALID_PROMPT_FAMILIES})"
+        )
     if any(not model.supports_temperature for model in models) and temperatures != [None]:
         unsupported = [m.inspect_model for m in models if not m.supports_temperature]
         raise ConfigError(
@@ -467,6 +514,31 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 "Restricted translations in confirmatory runs require a "
                 f"verification mode; incomplete: {unverified_restricted}"
             )
+        for model in models:
+            if model.provider != "openrouter":
+                continue
+            routing = model.provider_routing
+            order = routing.get("order")
+            if not isinstance(order, list) or len(order) != 1 or not order[0]:
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require provider_routing.order "
+                    "with exactly one upstream provider slug"
+                )
+            if routing.get("allow_fallbacks") is not False:
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require "
+                    "provider_routing.allow_fallbacks=false"
+                )
+            if routing.get("require_parameters") is not True:
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require "
+                    "provider_routing.require_parameters=true"
+                )
+            if routing.get("data_collection") != "deny":
+                raise ConfigError(
+                    "Confirmatory OpenRouter models require "
+                    "provider_routing.data_collection='deny'"
+                )
 
     if "buffer_transform_selection" in methods:
         missing_desc = [r.ref for r in references if not r.description]
@@ -488,6 +560,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         languages=languages,
         models=models,
         temperatures=temperatures,
+        prompt_families=prompt_families,
         set_sizes=set_sizes,
         language_pairing_mode=pairing_mode,
         language_pairs=language_pairs,

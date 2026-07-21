@@ -18,17 +18,57 @@ from scripture_fidelity.solvers import solver_chain
 SCORER_NAME = "quotation_fidelity"
 
 
+def _neutral_caller_prompt(
+    *, prompt_family: str, ref: ReferenceConfig, translation: TranslationConfig
+) -> str:
+    if prompt_family == "explicit_reference":
+        return (
+            f"Quote {ref.ref} from the {translation.display_name} exactly. "
+            "Return only the requested source text."
+        )
+    if prompt_family == "contextual_description":
+        return (
+            f"Quote the passage from the {translation.display_name} described "
+            f"as follows: {ref.description} Return only the requested source text."
+        )
+    raise ValueError(f"Unsupported neutral prompt family: {prompt_family}")
+
+
+def _model_input(
+    generated_prompt: str,
+    *,
+    method: str,
+    prompt_override: str,
+    source_document_override: str,
+) -> tuple[str, str]:
+    """Keep the caller request separate from source-supplied context."""
+    caller_prompt = prompt_override or generated_prompt
+    if method == "rag" and source_document_override:
+        return caller_prompt, (
+            "<authoritative_source>\n"
+            f"{source_document_override}\n"
+            "</authoritative_source>\n\n"
+            "<user_request>\n"
+            f"{caller_prompt}\n"
+            "</user_request>"
+        )
+    return caller_prompt, caller_prompt
+
+
 def variant_name(
     method: str,
     translation: TranslationConfig,
     language: str,
     temperature: float | None,
     set_size: int = 1,
+    prompt_family: str = "method_specific",
 ) -> str:
     temp = "default" if temperature is None else f"{temperature:g}".replace(".", "_")
     name = f"{method}__{translation.id}__{language}__t{temp}"
     if set_size > 1:
         name += f"__set{set_size}"
+    if prompt_family != "method_specific":
+        name += f"__{prompt_family}"
     return name
 
 
@@ -44,22 +84,38 @@ def build_sample(
     prompt_override: str = "",
     request_context: dict | None = None,
     source_document_override: str = "",
+    prompt_family: str = "method_specific",
 ) -> Sample:
-    prompt = build_prompt(
+    wrap_source_separately = method == "rag" and language == "eng"
+    generated_prompt = build_prompt(
         language=language,
-        method=method,
+        method="unassisted" if wrap_source_separately else method,
         reference=ref.ref,
         translation_name=translation.display_name,
         translation_id=translation.id,
         context=(
             source_document_override or passage.text
-            if method == "rag"
+            if method == "rag" and not wrap_source_separately
             else ""
         ),
         description=ref.description,
     )
-    if prompt_override:
-        prompt = prompt_override
+    caller_prompt, prompt = _model_input(
+        (
+            generated_prompt
+            if prompt_family == "method_specific"
+            else _neutral_caller_prompt(
+                prompt_family=prompt_family, ref=ref, translation=translation
+            )
+        ),
+        method=method,
+        prompt_override=prompt_override,
+        source_document_override=(
+            source_document_override or passage.text
+            if wrap_source_separately
+            else source_document_override
+        ),
+    )
     request_context = request_context or {}
     return Sample(
         id=request_context.get("scenario_id") or ref.ref,
@@ -70,6 +126,7 @@ def build_sample(
             "ref_type": ref.type,
             "reference_description": ref.description,
             "method": method,
+            "prompt_family": prompt_family,
             "translation": translation.id,
             "translation_api": translation.api,
             "translation_bible_id": translation.api_bible_id,
@@ -87,7 +144,10 @@ def build_sample(
             "protocol_version": request_context.get("protocol_version") or None,
             "repetition": int(request_context.get("repetition", 1)),
             "prompt_source": "caller" if prompt_override else "generated",
-            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "prompt_sha256": hashlib.sha256(caller_prompt.encode("utf-8")).hexdigest(),
+            "effective_user_input_sha256": hashlib.sha256(
+                prompt.encode("utf-8")
+            ).hexdigest(),
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
             ),
@@ -163,6 +223,9 @@ def build_multi_sample(
             "repetition": int(request_context.get("repetition", 1)),
             "prompt_source": "caller" if prompt_override else "generated",
             "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "effective_user_input_sha256": hashlib.sha256(
+                prompt.encode("utf-8")
+            ).hexdigest(),
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
             ),
@@ -184,6 +247,7 @@ def build_task(
     prompt_override: str = "",
     request_context: dict | None = None,
     source_document_override: str = "",
+    prompt_family: str = "method_specific",
 ) -> Task:
     """Build one Inspect task for a (method, translation, language, temp,
     set_size) variant. ``passages`` maps reference string -> Passage for
@@ -203,6 +267,7 @@ def build_task(
                 prompt_override=prompt_override,
                 request_context=request_context,
                 source_document_override=source_document_override,
+                prompt_family=prompt_family,
             )
             for ref in references
         ]
@@ -223,7 +288,9 @@ def build_task(
             )
             for i in range(0, len(references), set_size)
         ]
-    name = variant_name(method, translation, language, temperature, set_size)
+    name = variant_name(
+        method, translation, language, temperature, set_size, prompt_family
+    )
     return Task(
         dataset=MemoryDataset(samples=samples, name=name),
         solver=solver_chain(

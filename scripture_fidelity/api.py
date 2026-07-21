@@ -59,6 +59,7 @@ class ModelModel(StrictModel):
     provider: str
     model: str
     supports_temperature: bool = True
+    provider_routing: dict = Field(default_factory=dict)
 
 
 CONDITION_METHODS = {
@@ -127,10 +128,15 @@ class RunRequest(StrictModel):
             raise ValueError("source_document is allowed only for source_supplied_quote/rag")
         if self.source_document and len(self.references()) != 1:
             raise ValueError("source_document currently supports one reference per request")
-        if self.source_document and self.prompt:
+        if self.prompt and self.resolved_method() == "rag" and not self.source_document:
             raise ValueError(
-                "provide either an exact caller prompt containing its source "
-                "context or source_document for generated RAG prompting, not both"
+                "caller-supplied source_supplied_quote/rag prompts require "
+                "source_document"
+            )
+        if self.prompt and self.language != "eng":
+            raise ValueError(
+                "caller-supplied prompts currently support English only; "
+                "omit prompt to use the committed localized templates"
             )
         return self
 
@@ -228,7 +234,7 @@ async def version() -> dict:
 _STUDY_ENV_VARS = (
     "REFERENCES", "METHODS", "TRANSLATIONS", "LANGUAGES",
     "LANGUAGE_PAIRING_MODE", "LANGUAGE_PAIRS", "PROTOCOL_ROLE",
-    "MODELS", "TEMPERATURES", "REFERENCE_SET_SIZES",
+    "MODELS", "TEMPERATURES", "REFERENCE_SET_SIZES", "PROMPT_FAMILIES",
 )
 
 
@@ -251,6 +257,7 @@ def _build_config(req: RunRequest):
         "MODELS": json.dumps([req.model.model_dump()]),
         "TEMPERATURES": json.dumps([req.temperature]),
         "REFERENCE_SET_SIZES": json.dumps(req.reference_set_size),
+        "PROMPT_FAMILIES": json.dumps(["method_specific"]),
     }
     saved = {k: os.environ.get(k) for k in _STUDY_ENV_VARS}
     try:

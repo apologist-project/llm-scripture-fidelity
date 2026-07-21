@@ -11,6 +11,7 @@ from scripture_fidelity.task import SCORER_NAME
 DIMENSIONS = [
     "model",
     "method",
+    "prompt_family",
     "translation",
     "language",
     "language_match",
@@ -43,6 +44,7 @@ class TrialRow:
     reference: str
     ref_type: str
     epoch: int
+    prompt_family: str = "method_specific"
     set_size: int = 1
     language_match: bool = True
     language_pairing_mode: str = "matched"
@@ -78,9 +80,10 @@ def load_rows(log_dir: str | Path) -> list[TrialRow]:
                 TrialRow(
                     model=model,
                     method=md.get("method", "?"),
+                    prompt_family=md.get("prompt_family", "method_specific"),
                     translation=md.get("translation", "?"),
                     language=md.get("prompt_language", "?"),
-                    temperature=float(md.get("temperature", 0.0)),
+                    temperature=float(md.get("temperature") or 0.0),
                     reference=md.get("reference", str(sample.id)),
                     ref_type=md.get("ref_type", "?"),
                     epoch=sample.epoch,
@@ -115,6 +118,7 @@ def rows_from_trial_dicts(trial_rows: list[dict]) -> list[TrialRow]:
             TrialRow(
                 model=first.get("requested_model", "?"),
                 method=first.get("method", "?"),
+                prompt_family=first.get("prompt_family", "method_specific"),
                 translation=first.get("translation", "?"),
                 language=first.get("prompt_language", "?"),
                 temperature=float(first.get("temperature") or 0.0),
