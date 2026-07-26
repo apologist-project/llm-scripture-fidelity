@@ -5,7 +5,15 @@ from __future__ import annotations
 import os
 import re
 
-from inspect_ai.solver import Generate, Solver, TaskState, generate, solver, system_message, use_tools
+from inspect_ai.solver import (
+    Generate,
+    Solver,
+    TaskState,
+    generate,
+    solver,
+    system_message,
+    use_tools,
+)
 from inspect_ai.tool import Tool, tool
 
 from scripture_fidelity.bible.service import PassageService
@@ -14,6 +22,13 @@ from scripture_fidelity.prompts import system_prompt
 from scripture_fidelity.references import ReferenceError, parse_reference
 
 PLACEHOLDER_RE = re.compile(r"\{\{\s*QUOTE\s*:\s*([^{}]+?)\s*\}\}")
+MAX_MODEL_TURNS_PER_SAMPLE = 2
+
+
+def literal_system_template(value: str) -> str:
+    """Escape literal braces before Inspect applies ``str.format``."""
+
+    return value.replace("{", "{{").replace("}", "}}")
 
 
 def apply_buffer_transform(
@@ -257,6 +272,28 @@ def search_web() -> Tool:
     return execute
 
 
+@solver
+def bounded_tool_generation(tool_name: str) -> Solver:
+    """Allow one tool-call round and, when used, one final model response."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        state = await generate(state, tool_calls="single")
+        invoked = any(
+            call.function == tool_name
+            for message in state.messages
+            for call in (getattr(message, "tool_calls", None) or [])
+        )
+        if invoked:
+            # The second turn is rendering-only. Remove the assigned tool so a
+            # model cannot request an unexecuted second lookup instead of
+            # returning the user-visible answer.
+            state.tools = []
+            state = await generate(state, tool_calls="none")
+        return state
+
+    return solve
+
+
 def solver_chain(
     method: str,
     language: str,
@@ -266,12 +303,23 @@ def solver_chain(
 ) -> list[Solver]:
     """Build the solver chain for one study method. ``multi`` selects the
     multi-reference system prompt and placeholder transform."""
-    chain: list[Solver] = [system_message(system_prompt(language, multi=multi))]
+    chain: list[Solver] = [
+        system_message(
+            literal_system_template(system_prompt(language, method=method, multi=multi))
+        )
+    ]
     if method == "tool_call":
         chain.append(use_tools(get_passage(translation, service)))
     elif method == "web_search":
         chain.append(use_tools(search_web()))
-    chain.append(generate())
+    if method in ("tool_call", "web_search"):
+        chain.append(
+            bounded_tool_generation(
+                "get_passage" if method == "tool_call" else "search_web"
+            )
+        )
+    else:
+        chain.append(generate())
     if method == "buffer_transform":
         chain.append(buffer_transform_solver(multi=multi))
     elif method == "buffer_transform_selection":

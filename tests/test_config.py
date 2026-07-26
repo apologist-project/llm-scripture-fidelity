@@ -1,5 +1,7 @@
 """Tests for .env-based study configuration loading."""
 
+import os
+
 import pytest
 
 from scripture_fidelity.config import ConfigError, load_config
@@ -39,11 +41,45 @@ def test_valid_config(monkeypatch):
     assert config.translations[0].display_name == "Berean Standard Bible"
     assert config.models[0].inspect_model == "mockllm/model"
     assert config.temperatures == [0.0, 0.7]
+    assert config.prompt_families == ["method_specific"]
     assert config.set_sizes == [1]  # default
     assert config.language_pairing_mode == "matched"
     assert config.language_pairs == [("eng", "BSB")]
     assert config.protocol_role == "diagnostic"
     assert config.permutation_count() == 2 * 2 * 1 * 1 * 2
+
+
+def test_prompt_families_are_crossed_as_preregistered_treatments(monkeypatch):
+    set_env(
+        monkeypatch,
+        REFERENCES=(
+            '[{"ref": "John 3:16", "type": "well_known_single", '
+            '"description": "God gives His Son"}, '
+            '{"ref": "Psalm 117", "description": "All nations praise the Lord"}]'
+        ),
+        PROMPT_FAMILIES='["explicit_reference", "contextual_description"]',
+    )
+    config = load_config()
+
+    assert config.prompt_families == [
+        "explicit_reference",
+        "contextual_description",
+    ]
+    assert config.permutation_count() == 2 * 2 * 1 * 1 * 2 * 2
+
+
+def test_unknown_prompt_family_is_rejected(monkeypatch):
+    set_env(monkeypatch, PROMPT_FAMILIES='["marketing_copy"]')
+
+    with pytest.raises(ConfigError, match="PROMPT_FAMILIES"):
+        load_config()
+
+
+def test_contextual_prompt_family_requires_descriptions(monkeypatch):
+    set_env(monkeypatch, PROMPT_FAMILIES='["contextual_description"]')
+
+    with pytest.raises(ConfigError, match="description"):
+        load_config()
 
 
 def test_together_model_enables_streaming(monkeypatch):
@@ -58,6 +94,55 @@ def test_together_model_enables_streaming(monkeypatch):
     # Together requires streaming for some models; other providers unaffected.
     assert together.model_args == {"stream": True}
     assert openai.model_args == {}
+
+
+def test_openrouter_model_applies_and_round_trips_locked_routing(monkeypatch):
+    from scripture_fidelity.config import StudyConfig
+
+    routing = (
+        '{"order": ["anthropic"], "allow_fallbacks": false, '
+        '"require_parameters": true, "data_collection": "deny"}'
+    )
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "openrouter", '
+            '"model": "anthropic/claude-sonnet-5", '
+            f'"provider_routing": {routing}}}]'
+        ),
+    )
+    config = load_config()
+    assert config.models[0].model_args == {
+        "provider": {
+            "order": ["anthropic"],
+            "allow_fallbacks": False,
+            "require_parameters": True,
+            "data_collection": "deny",
+        }
+    }
+    assert StudyConfig.from_dict(config.to_dict()) == config
+
+
+def test_provider_routing_is_rejected_for_direct_provider(monkeypatch):
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "openai", "model": "gpt-5.6-sol", '
+            '"provider_routing": {"allow_fallbacks": false}}]'
+        ),
+    )
+    with pytest.raises(ConfigError, match="only for openrouter"):
+        load_config()
+
+
+def test_xai_key_is_bridged_to_inspect_grok_provider(monkeypatch):
+    set_env(monkeypatch)
+    monkeypatch.setenv("XAI_API_KEY", "test-xai-key")
+    monkeypatch.delenv("GROK_API_KEY", raising=False)
+
+    load_config()
+
+    assert os.environ["GROK_API_KEY"] == "test-xai-key"
 
 
 def test_model_can_require_provider_default_temperature(monkeypatch):
@@ -413,6 +498,62 @@ def test_confirmatory_accepts_single_valued_grid(monkeypatch):
     assert config.protocol_role == "confirmatory"
 
 
+@pytest.mark.parametrize(
+    ("routing", "message"),
+    [
+        ({}, "exactly one upstream"),
+        (
+            {
+                "order": ["anthropic"],
+                "allow_fallbacks": True,
+                "require_parameters": True,
+                "data_collection": "deny",
+            },
+            "allow_fallbacks=false",
+        ),
+        (
+            {
+                "order": ["anthropic"],
+                "allow_fallbacks": False,
+                "require_parameters": False,
+                "data_collection": "deny",
+            },
+            "require_parameters=true",
+        ),
+        (
+            {
+                "order": ["anthropic"],
+                "allow_fallbacks": False,
+                "require_parameters": True,
+                "data_collection": "allow",
+            },
+            "data_collection='deny'",
+        ),
+    ],
+)
+def test_confirmatory_openrouter_requires_locked_routing(monkeypatch, routing, message):
+    import json
+
+    model = {
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-5",
+        "provider_routing": routing,
+    }
+    set_env(
+        monkeypatch,
+        PROTOCOL_ROLE="confirmatory",
+        TEMPERATURES="[null]",
+        MODELS=json.dumps([model]),
+        TRANSLATIONS=(
+            '[{"id": "BSB", "language": "eng", "api": "ao_lab", '
+            '"api_bible_id": "BSB", "rights": "open", '
+            '"edition": "2023", "license_basis": "public domain"}]'
+        ),
+    )
+    with pytest.raises(ConfigError, match=message):
+        load_config()
+
+
 def test_confirmatory_requires_source_provenance(monkeypatch):
     set_env(monkeypatch, PROTOCOL_ROLE="confirmatory", TEMPERATURES="[0.0]")
     with pytest.raises(ConfigError, match="rights, edition, and license_basis"):
@@ -430,7 +571,26 @@ def test_call_accounting(monkeypatch):
     assert accounting["planned_requests"] == 24
     # 2 methods x 1 pair x 1 model x 2 temps x 1 set size x 3 epochs
     assert accounting["observations_per_reference"] == 12
-    assert (
-        accounting["max_generation_attempts"]
-        == 24 * (1 + accounting["retry_on_error"])
+    assert accounting["planned_model_turn_ceiling"] == 24
+    assert accounting["max_provider_api_attempts"] == 24 * (
+        1 + accounting["max_http_retries_per_attempt"]
     )
+    assert (
+        accounting["max_generation_attempts"] == accounting["max_provider_api_attempts"]
+    )
+
+
+def test_call_accounting_includes_bounded_tool_followup(monkeypatch):
+    from scripture_fidelity.runner import call_accounting
+
+    set_env(
+        monkeypatch,
+        METHODS='["unassisted", "tool_call", "buffer_transform_selection"]',
+        REFERENCES=('[{"ref": "John 3:16", "description": "God gives His Son."}]'),
+        TEMPERATURES="[null]",
+    )
+    accounting = call_accounting(load_config(), epochs=2)
+
+    assert accounting["planned_requests"] == 6
+    assert accounting["planned_model_turn_ceiling"] == 8
+    assert accounting["max_provider_api_attempts"] == 48

@@ -15,6 +15,7 @@ from scripture_fidelity.config import (
 from scripture_fidelity.export import (
     ExportError,
     _expand_references,
+    _model_call_provenance,
     _structured_error,
     build_run_manifest,
     build_scoring_config,
@@ -78,12 +79,14 @@ def test_source_fixture_provenance_fields():
 
 def test_restricted_source_omits_text_but_keeps_hash():
     translation = TranslationConfig(
-        id="NIV", language="eng", api="api_bible", api_bible_id="x",
-        rights="restricted", verification="hash_only",
+        id="NIV",
+        language="eng",
+        api="api_bible",
+        api_bible_id="x",
+        rights="restricted",
+        verification="hash_only",
     )
-    config = make_config(
-        translations=[translation], language_pairs=[("eng", "NIV")]
-    )
+    config = make_config(translations=[translation], language_pairs=[("eng", "NIV")])
     fixtures = build_source_fixtures(
         config, {translation.source_key: {"John 3:16": make_passage()}}
     )
@@ -96,12 +99,13 @@ def test_restricted_source_omits_text_but_keeps_hash():
 
 def test_restricted_source_without_verification_blocks_export():
     translation = TranslationConfig(
-        id="NIV", language="eng", api="api_bible", api_bible_id="x",
+        id="NIV",
+        language="eng",
+        api="api_bible",
+        api_bible_id="x",
         rights="restricted",
     )
-    config = make_config(
-        translations=[translation], language_pairs=[("eng", "NIV")]
-    )
+    config = make_config(translations=[translation], language_pairs=[("eng", "NIV")])
     with pytest.raises(ExportError, match="verification"):
         build_source_fixtures(
             config, {translation.source_key: {"John 3:16": make_passage()}}
@@ -152,9 +156,7 @@ def test_manifest_detects_model_aliases():
     config = make_config()
     rows = [
         make_trial_row(requested_model="mockllm/latest"),
-        make_trial_row(
-            request_id="run1:Psalm 117:1", requested_model="mockllm/model"
-        ),
+        make_trial_row(request_id="run1:Psalm 117:1", requested_model="mockllm/model"),
     ]
     manifest = build_run_manifest(config, rows, epochs=1)
     aliases = manifest["model_alias_map"]["mockllm/model-2026-01-01"]
@@ -171,8 +173,104 @@ def test_manifest_records_provider_model_args():
     manifest = build_run_manifest(config, [make_trial_row()], epochs=1)
     # Only models with provider-specific args appear; Together streaming is
     # recorded, OpenAI (no special args) is omitted.
+    assert manifest["model_args"] == {"together/Qwen/Qwen3.7-Max": {"stream": True}}
+
+
+def test_manifest_records_openrouter_provider_routing():
+    routing = {
+        "order": ["anthropic"],
+        "allow_fallbacks": False,
+        "require_parameters": True,
+        "data_collection": "deny",
+    }
+    config = make_config(
+        models=[
+            ModelConfig(
+                provider="openrouter",
+                model="anthropic/claude-sonnet-5",
+                provider_routing=routing,
+            )
+        ]
+    )
+    manifest = build_run_manifest(config, [make_trial_row()], epochs=1)
     assert manifest["model_args"] == {
-        "together/Qwen/Qwen3.7-Max": {"stream": True}
+        "openrouter/anthropic/claude-sonnet-5": {"provider": routing}
+    }
+
+
+def test_manifest_aggregates_provider_identity_and_cost():
+    rows = [
+        make_trial_row(
+            actual_providers=["OpenAI"],
+            provider_reported_cost=0.012,
+        ),
+        make_trial_row(
+            request_id="run1:Psalm 117:1",
+            actual_providers=["OpenAI"],
+            provider_reported_cost=0.003,
+        ),
+    ]
+
+    manifest = build_run_manifest(make_config(), rows, epochs=2)
+
+    assert manifest["actual_providers"] == ["OpenAI"]
+    assert manifest["provider_reported_cost"] == pytest.approx(0.015)
+
+
+def test_manifest_counts_multi_reference_request_cost_once():
+    rows = [
+        make_trial_row(
+            request_id="multi-request",
+            reference="John 3:16",
+            provider_reported_cost=0.012,
+        ),
+        make_trial_row(
+            request_id="multi-request",
+            reference="Psalm 117",
+            provider_reported_cost=0.012,
+        ),
+    ]
+
+    manifest = build_run_manifest(make_config(), rows, epochs=1)
+
+    assert manifest["provider_reported_cost"] == pytest.approx(0.012)
+
+
+def test_model_call_provenance_preserves_provider_identity_and_cost():
+    sample = SimpleNamespace(
+        events=[
+            SimpleNamespace(event="state", call=None),
+            SimpleNamespace(
+                event="model",
+                call=SimpleNamespace(
+                    response={
+                        "id": "gen-first",
+                        "provider": "OpenAI",
+                        "model": "openai/gpt-5.6-sol",
+                        "usage": {"cost": 0.012},
+                    }
+                ),
+            ),
+            SimpleNamespace(
+                event="model",
+                call=SimpleNamespace(
+                    response={
+                        "id": "gen-second",
+                        "provider": "OpenAI",
+                        "model": "openai/gpt-5.6-sol",
+                        "usage": {"cost": 0.003},
+                    }
+                ),
+            ),
+        ]
+    )
+
+    assert _model_call_provenance(sample) == {
+        "model_call_count": 2,
+        "provider_response_ids": ["gen-first", "gen-second"],
+        "actual_providers": ["OpenAI"],
+        "response_models": ["openai/gpt-5.6-sol"],
+        "provider_reported_cost": pytest.approx(0.015),
     }
 
 
@@ -196,10 +294,18 @@ def test_multi_reference_rows_share_request_id_and_regroup(tmp_path):
         "metrics": {"exact": 0.5},
     }
     rows = [
-        {**shared, "reference": "John 3:16", "reference_index": 0,
-         "fixture_id": "ao_lab:BSB:BSB:JHN.3.16"},
-        {**shared, "reference": "Psalm 117", "reference_index": 1,
-         "fixture_id": "ao_lab:BSB:BSB:PSA.117"},
+        {
+            **shared,
+            "reference": "John 3:16",
+            "reference_index": 0,
+            "fixture_id": "ao_lab:BSB:BSB:JHN.3.16",
+        },
+        {
+            **shared,
+            "reference": "Psalm 117",
+            "reference_index": 1,
+            "fixture_id": "ao_lab:BSB:BSB:PSA.117",
+        },
     ]
     (tmp_path / "trials.jsonl").write_text(
         "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8"
@@ -262,8 +368,7 @@ def test_export_error_is_bounded_and_drops_traceback():
 
 def test_export_error_redacts_likely_credentials():
     error = _structured_error(
-        "ProviderError API_KEY=secret-value bearer:abcdefghijkl "
-        "sk-live12345678"
+        "ProviderError API_KEY=secret-value bearer:abcdefghijkl sk-live12345678"
     )
     assert "secret-value" not in error["message"]
     assert "abcdefghijkl" not in error["message"]
@@ -275,17 +380,30 @@ def test_report_recomputed_from_export_matches(tmp_path):
 
     rows = [
         make_trial_row(
-            method="unassisted", translation="BSB", prompt_language="eng",
-            language_match=True, language_pairing_mode="matched",
-            protocol_role="diagnostic", temperature=0.0, set_size=1,
-            epoch=1, metrics={"exact": 1.0, "similarity": 1.0},
+            method="unassisted",
+            translation="BSB",
+            prompt_language="eng",
+            language_match=True,
+            language_pairing_mode="matched",
+            protocol_role="diagnostic",
+            temperature=0.0,
+            set_size=1,
+            epoch=1,
+            metrics={"exact": 1.0, "similarity": 1.0},
         ),
         make_trial_row(
-            request_id="run1:Psalm 117:1", reference="Psalm 117",
-            method="unassisted", translation="BSB", prompt_language="eng",
-            language_match=True, language_pairing_mode="matched",
-            protocol_role="diagnostic", temperature=0.0, set_size=1,
-            epoch=1, metrics={"exact": 0.0, "similarity": 0.5},
+            request_id="run1:Psalm 117:1",
+            reference="Psalm 117",
+            method="unassisted",
+            translation="BSB",
+            prompt_language="eng",
+            language_match=True,
+            language_pairing_mode="matched",
+            protocol_role="diagnostic",
+            temperature=0.0,
+            set_size=1,
+            epoch=1,
+            metrics={"exact": 0.0, "similarity": 0.5},
         ),
     ]
     (tmp_path / "trials.jsonl").write_text(
@@ -312,20 +430,37 @@ def _csv_trial_rows():
     from scripture_fidelity.report.data import TrialRow
 
     metrics = {
-        "exact": 1.0, "normalized": 1.0, "similarity": 1.0, "cer": 0.0,
-        "verse_coverage": 1.0, "final_output_exact": 1.0,
-        "method_adherence": 1.0, "end_to_end_exact": 1.0,
+        "exact": 1.0,
+        "normalized": 1.0,
+        "similarity": 1.0,
+        "cer": 0.0,
+        "verse_coverage": 1.0,
+        "final_output_exact": 1.0,
+        "method_adherence": 1.0,
+        "end_to_end_exact": 1.0,
     }
     return [
         TrialRow(
-            model="openai/gpt-4o", method="unassisted", translation="BSB",
-            language="eng", temperature=0.0, reference="John 3:16",
-            ref_type="single", epoch=1, metrics=dict(metrics),
+            model="openai/gpt-4o",
+            method="unassisted",
+            translation="BSB",
+            language="eng",
+            temperature=0.0,
+            reference="John 3:16",
+            ref_type="single",
+            epoch=1,
+            metrics=dict(metrics),
         ),
         TrialRow(
-            model="openai/gpt-4o", method="rag", translation="BSB",
-            language="eng", temperature=0.0, reference="Psalm 117",
-            ref_type="chapter", epoch=1, metrics={**metrics, "exact": 0.0},
+            model="openai/gpt-4o",
+            method="rag",
+            translation="BSB",
+            language="eng",
+            temperature=0.0,
+            reference="Psalm 117",
+            ref_type="chapter",
+            epoch=1,
+            metrics={**metrics, "exact": 0.0},
         ),
     ]
 

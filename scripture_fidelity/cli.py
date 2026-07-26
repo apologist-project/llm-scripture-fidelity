@@ -22,34 +22,46 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="Run the study grid")
     run.add_argument("--env-file", default=None, help="Path to .env (default: ./.env)")
     run.add_argument(
-        "-n", "--iterations", type=int, default=1,
+        "-n",
+        "--iterations",
+        type=int,
+        default=1,
         help="Iterations per permutation (Inspect epochs, default 1)",
     )
     run.add_argument(
         "--results-dir", default="results", help="Base directory for run output"
     )
     run.add_argument(
-        "--concurrency", type=int, default=10,
+        "--concurrency",
+        type=int,
+        default=10,
         help="Max concurrent model connections (default 10)",
     )
     run.add_argument(
-        "--max-tasks", type=int, default=4,
+        "--max-tasks",
+        type=int,
+        default=4,
         help="Max Inspect tasks running in parallel (default 4)",
     )
     run.add_argument(
-        "--display", default="rich",
+        "--display",
+        default="rich",
         choices=["full", "conversation", "rich", "plain", "log", "none"],
         help="Inspect progress display (default rich)",
     )
     run.add_argument(
-        "--cache-dir", default=None, help="Passage cache directory (default .cache/passages)"
+        "--cache-dir",
+        default=None,
+        help="Passage cache directory (default .cache/passages)",
     )
     run.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Print the permutation grid and exit without calling any model",
     )
     run.add_argument(
-        "--confirm-large-run", action="store_true",
+        "--confirm-large-run",
+        action="store_true",
         help="Authorize a run whose planned call volume exceeds the threshold",
     )
     for flag, help_text in [
@@ -132,13 +144,11 @@ def _apply_overrides(config, args):
             None if t.casefold() in {"default", "none", "null"} else float(t)
             for t in _csv(args.temperatures)
         ]
-    if (
-        any(not model.supports_temperature for model in config.models)
-        and config.temperatures != [None]
-    ):
+    if any(
+        not model.supports_temperature for model in config.models
+    ) and config.temperatures != [None]:
         raise ConfigError(
-            "models with supports_temperature=false require "
-            "--temperatures default"
+            "models with supports_temperature=false require --temperatures default"
         )
     if args.set_sizes is not None:
         sizes = [int(s) for s in _csv(args.set_sizes)]
@@ -171,8 +181,12 @@ def _print_grid(config, iterations: int) -> None:
         ("models", [m.inspect_model for m in config.models]),
         (
             "temperatures",
-            ["provider default" if t is None else f"{t:g}" for t in config.temperatures],
+            [
+                "provider default" if t is None else f"{t:g}"
+                for t in config.temperatures
+            ],
         ),
+        ("prompt families", config.prompt_families),
     ]:
         table.add_row(name, str(len(values)), ", ".join(str(v) for v in values))
     console.print(table)
@@ -184,6 +198,7 @@ def _print_grid(config, iterations: int) -> None:
         * len(pairs)
         * len(config.temperatures)
         * len(config.set_sizes)
+        * len(config.prompt_families)
     )
     console.print(
         f"Protocol role: [bold]{config.protocol_role}[/bold] | "
@@ -200,9 +215,11 @@ def _print_grid(config, iterations: int) -> None:
         f"{accounting['epochs']} epochs) | "
         f"observations per reference: "
         f"[bold]{accounting['observations_per_reference']}[/bold] | "
-        f"retry upper bound: [bold]{accounting['max_generation_attempts']}[/bold] "
-        f"attempts (x{1 + accounting['retry_on_error']} per sample, up to "
-        f"{accounting['max_http_retries_per_attempt']} HTTP retries each)"
+        f"model-turn ceiling: "
+        f"[bold]{accounting['planned_model_turn_ceiling']}[/bold] | "
+        f"provider-attempt ceiling: "
+        f"[bold]{accounting['max_provider_api_attempts']}[/bold] "
+        f"(up to {accounting['max_http_retries_per_attempt']} retries per turn)"
     )
 
 
@@ -224,9 +241,7 @@ def _emit_reports(log_dir: Path) -> int:
     console.print(f"HTML report written to [bold]{path}[/bold]")
     csv_dir = log_dir.parent / "csv"
     csv_paths = write_csv_reports(rows, csv_dir)
-    console.print(
-        f"{len(csv_paths)} CSV tables written to [bold]{csv_dir}[/bold]"
-    )
+    console.print(f"{len(csv_paths)} CSV tables written to [bold]{csv_dir}[/bold]")
     return 0
 
 
@@ -254,8 +269,8 @@ def _cmd_run(args) -> int:
     ):
         console.print(
             f"[red]Run blocked:[/red] planned call volume "
-            f"({accounting['max_generation_attempts']} generation attempts "
-            f"including retries) exceeds the threshold of "
+            f"({accounting['max_provider_api_attempts']} provider attempts "
+            f"including transport retries) exceeds the threshold of "
             f"{CALL_VOLUME_THRESHOLD}. Review the grid with --dry-run and "
             f"re-run with --confirm-large-run to authorize."
         )
@@ -310,9 +325,7 @@ def _cmd_report(args) -> int:
         console.print(f"HTML report written to [bold]{path}[/bold]")
         csv_dir = run_dir / "csv"
         csv_paths = write_csv_reports(rows, csv_dir)
-        console.print(
-            f"{len(csv_paths)} CSV tables written to [bold]{csv_dir}[/bold]"
-        )
+        console.print(f"{len(csv_paths)} CSV tables written to [bold]{csv_dir}[/bold]")
         return 0
     log_dir = run_dir / "logs" if (run_dir / "logs").is_dir() else run_dir
     return _emit_reports(log_dir)

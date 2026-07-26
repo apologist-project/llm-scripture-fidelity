@@ -1,20 +1,23 @@
 # Research API Contract
 
 This document defines the integration boundary between an independent research
-caller and a hosted Scripture-fidelity implementation. It lets research teams
-execute preregistered scenarios while implementation operators retain their
-provider credentials, source agreements, and operational infrastructure.
+caller and an executable Scripture-fidelity implementation. Research teams may
+run the committed API locally from a pinned checkout or call an independently
+operated deployment. In either mode, the executor retains control of provider
+credentials, source agreements, and operational infrastructure.
 
 The contract supports reproducible measurement. It is not a certification,
 leaderboard, product endorsement, or permission to release restricted text.
 
 ## Version and discovery
 
-`GET /version` requires no authentication and returns the deployed commit,
-dependency-lock hash, schema version, prompt-template version, and supported
-condition-to-method mappings. Capture this response once before and once after
-each run batch. A changed identity means the batch spans multiple system
-versions and must be analyzed separately or rerun.
+`GET /version` requires no authentication and returns the running commit,
+dependency-lock hash, schema version, and supported condition-to-method
+mappings. The commit identifies the exact prompt and harness implementation;
+trial-level hashes identify the submitted request and effective model input.
+Capture the version response once before and once after each run batch. A
+changed identity means the batch spans multiple system versions and must be
+analyzed separately or rerun.
 
 Runtime OpenAPI is available at `GET /openapi.json`. Stable request and response
 schemas are committed under `schemas/` and regenerated with:
@@ -41,7 +44,7 @@ their applicable terms remain in force.
 |---|---|---|
 | `native_parametric_quote` | `unassisted` | Model produces text without an assigned source tool. |
 | `source_supplied_quote` | `rag` | Authoritative source text is supplied in context. |
-| `tool_call_quote` | `tool_call` | Model may invoke a Bible retrieval tool. |
+| `tool_call_quote` | `tool_call` | Model may invoke a Bible retrieval tool; adherence requires retrieval of the requested reference, not merely any tool call. |
 | `web_search_quote` | `web_search` | Model may invoke the configured web search tool. |
 | `deterministic_render_given_reference` | `buffer_transform` | Requested reference is given; a deterministic layer renders source text. |
 | `reference_token_then_replace` | `buffer_transform_selection` | Model selects a reference token; a deterministic layer retrieves and renders it. |
@@ -51,6 +54,12 @@ implementation diagnostics. If both are sent, they must represent the mapping
 above. The response echoes `condition_requested`, `condition_executed`, and
 `method_executed`; analysis must use the executed fields rather than infer the
 condition from output quality.
+
+Condition-specific tool, source-use, and placeholder instructions are applied
+in the system layer. A caller-supplied user prompt therefore remains identical
+across conditions while the harness changes only the assigned architecture.
+This caller-prompt path is English-only in the current protocol version;
+non-English runs use the repository's reviewed localized prompt templates.
 
 ## Caller-controlled research fields
 
@@ -67,10 +76,15 @@ condition from output quality.
 - `source_fixture_id`: expected authoritative fixture identity. The server
   rejects a mismatch before model execution.
 - `source_document`: caller-supplied source text for a one-reference
-  `source_supplied_quote` request. It cannot be combined with `prompt`, because
-  an exact prompt may already contain its own source context.
+  `source_supplied_quote` request. When combined with `prompt`, the caller's
+  exact user request is preserved and the document is added through the pinned
+  harness context wrapper.
 
-The export records the prompt hash and whether it was caller-supplied. API runs
+The export records the caller-prompt hash, effective user-input hash, and
+whether the prompt was caller-supplied. Source-supplied runs additionally
+record `source_document_supplied` and the SHA-256 hash of the exact source
+document inserted by the harness, including when the document came from the
+configured Bible provider rather than the caller. API runs
 delete their temporary Inspect logs, so callers must retain their submitted
 prompt registry; generated prompts are recoverable from the pinned template
 version and inputs. Raw and final outputs are returned to the caller with
@@ -85,6 +99,19 @@ that reject the parameter or expose no caller-controlled temperature. A null
 value means provider default, not temperature zero. Record model aliases only
 when the provider documents their resolution; the response separately records
 requested and resolved model identifiers where Inspect exposes both.
+
+For confirmatory OpenRouter execution, the model object must include a
+`provider_routing` object that pins exactly one upstream provider, sets
+`allow_fallbacks` to `false`, sets `require_parameters` to `true`, and sets
+`data_collection` to `deny`. The applied object is retained in the run
+manifest. Diagnostic runs may omit it, but those results must not be represented
+as a stable confirmatory route.
+
+Tool-mediated conditions permit one tool-call round followed by one final
+model response with tools removed. Other conditions use one model turn. Run
+manifests and dry-run plans distinguish this semantic model-turn ceiling from the larger
+provider-attempt ceiling, which includes bounded HTTP retries. Retries do not
+create replacement experimental observations.
 
 ## Response and analysis unit
 
@@ -101,6 +128,9 @@ Each response includes:
 - requested and resolved model identity when available;
 - source fixture IDs, retrieval timestamps, hashes, rights, verification mode,
   edition, license basis, and public-release metadata;
+- observed assigned-tool calls with raw and canonicalized references and
+  lookup fixture identities, allowing a caller to distinguish no tool use from
+  retrieval of the wrong passage;
 - raw/final output hashes, selected-reference fields, lookup fixture identity,
   failure tags, structured errors, usage, retry, and timing fields;
 - deterministic text metrics plus method adherence and end-to-end exactness.
@@ -116,7 +146,7 @@ retry and missingness rules before confirmatory execution.
 
 ## Required preflight
 
-1. Pin and record the deployment commit and `/version` response.
+1. Pin and record the execution commit and `/version` response.
 2. Validate all requests against the committed request schema.
 3. Confirm source edition, rights, verification, and release metadata.
 4. Run a small integration pilot across each condition and provider family.

@@ -2,7 +2,7 @@
 
 Research study for methods of quoting Scripture with high fidelity.
 
-The study measures how faithfully LLMs can reproduce Bible passages word for word, comparing five quotation methods across a configurable grid of scripture references, Bible translations, prompt languages, models, and sampling temperatures. It is built on [Inspect](https://inspect.aisi.org.uk/) for evaluation orchestration and scores every trial deterministically against ground-truth text fetched from Bible APIs.
+The study measures how faithfully LLMs can reproduce Bible passages word for word, comparing six quotation methods across a configurable grid of scripture references, Bible translations, prompt languages, models, and sampling temperatures. It is built on [Inspect](https://inspect.aisi.org.uk/) for evaluation orchestration and scores every trial deterministically against ground-truth text fetched from Bible APIs.
 
 ## Quotation methods
 
@@ -13,6 +13,7 @@ The study measures how faithfully LLMs can reproduce Bible passages word for wor
 | `tool_call` | The model is given a `get_passage` tool that fetches the exact text from a Bible API. |
 | `web_search` | The model is given a `search_web` tool (Parallel.ai Search API) and must find the text on the open web. |
 | `buffer_transform` | The model emits a `{{QUOTE:<reference>}}` placeholder that is programmatically replaced with the exact text in a post-generation transform. |
+| `buffer_transform_selection` | The model identifies a passage by emitting a reference placeholder; the selected reference is retrieved and rendered deterministically. |
 
 ## Installation
 
@@ -24,6 +25,11 @@ cd llm-scripture-fidelity
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+```
+
+With [uv](https://docs.astral.sh/uv/), the equivalent reproducible setup is
+```bash
+uv sync --frozen --extra dev --extra api
 ```
 
 ## Configuration
@@ -40,13 +46,35 @@ cp .env.example .env
 |---|---|
 | `REFERENCES` | Scripture references to test. Each entry is a string (`"John 3:16"`) or an object with a grouping label: `{"ref": "Psalm 117", "type": "chapter"}`. Supports single verses, ranges (`Romans 8:38-39`), cross-chapter ranges (`Luke 9:57-10:2`), and whole chapters. When `type` is omitted it is inferred (`single`/`range`/`chapter`). |
 | `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `buffer_transform`, `buffer_transform_selection`, `web_search`. |
+| `PROMPT_FAMILIES` | Caller-request formulations. `explicit_reference` and `contextual_description` hold user wording constant across methods; `method_specific` preserves the original method-aware prompts. |
 | `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and usually `api_bible_id` (the provider-specific identifier; omit or leave empty for single-translation APIs such as `esv`). Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
 | `LANGUAGES` | Available prompt languages. In `matched` mode only declared `LANGUAGE_PAIRS` run; a full cross-product requires an explicitly exploratory `crossed` configuration. |
-| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), `openrouter` (model ids are `vendor/model`, e.g. `anthropic/claude-sonnet-4`), and `mockllm` (for testing without API calls). |
+| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), `openrouter` (model ids are `vendor/model`, e.g. `anthropic/claude-sonnet-4`), and `mockllm` (for testing without API calls). Confirmatory OpenRouter routes must use `provider_routing` to pin one upstream provider, disable fallbacks, require requested parameters, and deny data-collecting routes. |
 | `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. Use `[null]` to omit temperature and use the provider default. |
 | `REFERENCE_SET_SIZES` | Optional (default `[1]`). Reference set sizes, e.g. `[1, 3]`. For each size > 1 the references list is chunked (in order) into sets of that size, and each set becomes a single prompt asking for all of its passages at once — probing whether models handle every requested reference (e.g. calling `get_passage` once per reference). Size 1 reproduces standard single-reference samples. |
 
-The run grid combines reference sets, methods, declared language-translation pairs, models, and temperatures. A full languages × translations cross-product runs only in explicitly exploratory `crossed` mode.
+The run grid combines reference sets, methods, prompt families, declared language-translation pairs, models, and temperatures. A full languages × translations cross-product runs only in explicitly exploratory `crossed` mode.
+
+OpenRouter normally routes among available inference providers. Confirmatory
+entries therefore require this shape so repetitions retain one declared route:
+
+```json
+{
+  "provider": "openrouter",
+  "model": "vendor/model-id",
+  "supports_temperature": false,
+  "provider_routing": {
+    "order": ["upstream-provider-slug"],
+    "allow_fallbacks": false,
+    "require_parameters": true,
+    "data_collection": "deny"
+  }
+}
+```
+
+The resolved model and applied provider-routing object are retained in the
+exported run manifest. A route failure remains an observed error; it is not
+silently moved to a different model or upstream provider.
 
 ### Bible API providers
 
@@ -81,6 +109,12 @@ Always start with a dry run to see the grid size and estimated call count before
 ```bash
 scripture-fidelity run --dry-run
 ```
+
+The dry run reports both a semantic model-turn ceiling and a provider-attempt
+ceiling. Tool-mediated methods permit one tool-call turn followed by one final
+response; all other methods use one model turn. The provider-attempt ceiling
+also includes bounded transport retries and is therefore a conservative
+operational limit, not a count of independent experimental observations.
 
 Then run the full study (or a subset):
 
@@ -133,9 +167,9 @@ Reports can be rebuilt from a past run's logs without re-running anything:
 scripture-fidelity report results/20260710-212847
 ```
 
-## HTTP API (single run)
+## Research API (local or hosted single run)
 
-Besides the CLI, the study can be served as an authenticated HTTP endpoint that
+Besides the CLI, the study can be served locally or remotely as an authenticated HTTP endpoint that
 executes **one** permutation per request and returns the full result package.
 Unlike the CLI, an API run is ephemeral: nothing is written to `results/`, and
 the caller owns the returned JSON.
@@ -159,7 +193,7 @@ The versioned collaboration contract, examples, and release boundaries are in
 [docs/RESEARCH_API.md](docs/RESEARCH_API.md); committed JSON Schemas are in
 [`schemas/`](schemas/). The runtime models live in
 `scripture_fidelity/api.py`. For
-containerization and hosting (Google Cloud Run, with a GitHub Actions
+optional containerization and hosting (Google Cloud Run, with a GitHub Actions
 auto-deploy on push to `main`, plus Render/VM alternatives), see
 [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -185,7 +219,8 @@ All metrics are deterministic string comparisons (no LLM judge). The quoted pass
 | `verse_coverage` | Fraction of ground-truth verses appearing verbatim (normalized) in the answer. |
 | `answered` | Whether the model produced any quote at all. |
 | `placeholder_ok` | For `buffer_transform`: whether the model emitted exactly one well-formed placeholder per requested reference. |
-| `tool_used` | For `tool_call`/`web_search`: whether the model actually invoked its assigned tool (`get_passage`/`search_web`). For multi-reference `tool_call` samples this is the *coverage*: the fraction of requested references actually looked up via `get_passage` (one call for three references scores 0.33). |
+| `tool_invoked` | Whether the model invoked the assigned tool at least once, even if it requested the wrong passage. |
+| `tool_used` | For `tool_call`, the fraction of requested references actually retrieved via `get_passage`; a wrong-reference call scores zero coverage. For `web_search`, whether the assigned search tool was invoked. |
 
 Observed text fidelity is never overwritten when a method instruction is disobeyed. `method_adherence` records tool/placeholder compliance, while `end_to_end_exact` is the conjunction of final-output exactness and applicable selection, lookup, replacement, and adherence components. This preserves the difference between quoting accurately from memory and successfully executing a tool-mediated condition.
 
@@ -195,7 +230,7 @@ With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages 
 
 ## Caching
 
-Ground-truth passages are cached on disk (`.cache/passages` by default), so repeated runs do not re-hit the Bible APIs. The same fetched text serves as the RAG context, the `get_passage` tool output, the buffer-transform replacement source, and the scoring ground truth — guaranteeing a consistent baseline across methods. Delete the cache directory to force re-fetching.
+Ground-truth passages are cached on disk (`.cache/passages` by default), so repeated runs do not re-hit the Bible APIs. The same fetched text serves as the RAG context, the `get_passage` tool output, the buffer-transform replacement source, and the scoring ground truth, guaranteeing a consistent baseline across methods. Trial exports record whether source text was supplied, its hash, the observed tool-call references, and the corresponding lookup fixture identities. Delete the cache directory to force re-fetching.
 
 ## Testing
 
@@ -220,7 +255,7 @@ scripture_fidelity/
   config.py         # .env parsing and validation
   references.py     # "John 3:16" -> canonical USFM reference
   prompts.py        # per-language prompt templates for each method
-  solvers.py        # Inspect solvers/tools for the five methods
+  solvers.py        # Inspect solvers/tools for the six methods
   task.py           # Inspect task factory (one task per variant)
   runner.py         # grid expansion, ground-truth prefetch, eval execution
   scoring.py        # metrics + Inspect scorer

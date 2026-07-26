@@ -11,6 +11,11 @@
           "title": "Provider",
           "type": "string"
         },
+        "provider_routing": {
+          "additionalProperties": true,
+          "title": "Provider Routing",
+          "type": "object"
+        },
         "supports_temperature": {
           "default": true,
           "title": "Supports Temperature",
