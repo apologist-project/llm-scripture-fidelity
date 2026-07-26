@@ -44,7 +44,7 @@ their applicable terms remain in force.
 |---|---|---|
 | `native_parametric_quote` | `unassisted` | Model produces text without an assigned source tool. |
 | `source_supplied_quote` | `rag` | Authoritative source text is supplied in context. |
-| `tool_call_quote` | `tool_call` | Model may invoke a Bible retrieval tool. |
+| `tool_call_quote` | `tool_call` | Model may invoke a Bible retrieval tool; adherence requires retrieval of the requested reference, not merely any tool call. |
 | `web_search_quote` | `web_search` | Model may invoke the configured web search tool. |
 | `deterministic_render_given_reference` | `buffer_transform` | Requested reference is given; a deterministic layer renders source text. |
 | `reference_token_then_replace` | `buffer_transform_selection` | Model selects a reference token; a deterministic layer retrieves and renders it. |
@@ -81,7 +81,10 @@ non-English runs use the repository's reviewed localized prompt templates.
   harness context wrapper.
 
 The export records the caller-prompt hash, effective user-input hash, and
-whether the prompt was caller-supplied. API runs
+whether the prompt was caller-supplied. Source-supplied runs additionally
+record `source_document_supplied` and the SHA-256 hash of the exact source
+document inserted by the harness, including when the document came from the
+configured Bible provider rather than the caller. API runs
 delete their temporary Inspect logs, so callers must retain their submitted
 prompt registry; generated prompts are recoverable from the pinned template
 version and inputs. Raw and final outputs are returned to the caller with
@@ -104,6 +107,12 @@ For confirmatory OpenRouter execution, the model object must include a
 manifest. Diagnostic runs may omit it, but those results must not be represented
 as a stable confirmatory route.
 
+Tool-mediated conditions permit one tool-call round followed by one final
+model response with tools removed. Other conditions use one model turn. Run
+manifests and dry-run plans distinguish this semantic model-turn ceiling from the larger
+provider-attempt ceiling, which includes bounded HTTP retries. Retries do not
+create replacement experimental observations.
+
 ## Response and analysis unit
 
 The API returns one request package. `trials` contains one row per requested
@@ -119,6 +128,9 @@ Each response includes:
 - requested and resolved model identity when available;
 - source fixture IDs, retrieval timestamps, hashes, rights, verification mode,
   edition, license basis, and public-release metadata;
+- observed assigned-tool calls with raw and canonicalized references and
+  lookup fixture identities, allowing a caller to distinguish no tool use from
+  retrieval of the wrong passage;
 - raw/final output hashes, selected-reference fields, lookup fixture identity,
   failure tags, structured errors, usage, retry, and timing fields;
 - deterministic text metrics plus method adherence and end-to-end exactness.

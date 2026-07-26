@@ -11,8 +11,14 @@ from pathlib import Path
 
 from scripture_fidelity.bible.base import Passage
 from scripture_fidelity.bible.service import PassageService
-from scripture_fidelity.config import ConfigError, StudyConfig, TranslationConfig, fixture_id
+from scripture_fidelity.config import (
+    ConfigError,
+    StudyConfig,
+    TranslationConfig,
+    fixture_id,
+)
 from scripture_fidelity.references import parse_reference
+from scripture_fidelity.solvers import MAX_MODEL_TURNS_PER_SAMPLE
 from scripture_fidelity.task import build_task
 
 
@@ -35,6 +41,8 @@ GENERATION_CONTROLS = {
     "timeout": 1800,
     "max_retries": MAX_HTTP_RETRIES,
     "retry_on_error": RETRY_ON_ERROR,
+    "max_model_turns_per_sample": MAX_MODEL_TURNS_PER_SAMPLE,
+    "tool_rounds": 1,
 }
 
 # Planned generation attempts above this require explicit authorization
@@ -60,7 +68,19 @@ def call_accounting(config: StudyConfig, epochs: int) -> dict[str, int]:
         * len(config.prompt_families)
         * epochs
     )
-    max_generation_attempts = planned_requests * (1 + RETRY_ON_ERROR)
+    requests_per_method = (
+        config.sample_count()
+        * len(config.variant_pairs())
+        * len(config.models)
+        * len(config.temperatures)
+        * len(config.prompt_families)
+        * epochs
+    )
+    planned_model_turn_ceiling = requests_per_method * sum(
+        MAX_MODEL_TURNS_PER_SAMPLE if method in {"tool_call", "web_search"} else 1
+        for method in config.methods
+    )
+    max_provider_api_attempts = planned_model_turn_ceiling * (1 + MAX_HTTP_RETRIES)
     return {
         "language_pairs": len(config.variant_pairs()),
         "samples_per_epoch": samples_per_epoch,
@@ -69,7 +89,9 @@ def call_accounting(config: StudyConfig, epochs: int) -> dict[str, int]:
         "observations_per_reference": observations_per_reference,
         "retry_on_error": RETRY_ON_ERROR,
         "max_http_retries_per_attempt": MAX_HTTP_RETRIES,
-        "max_generation_attempts": max_generation_attempts,
+        "planned_model_turn_ceiling": planned_model_turn_ceiling,
+        "max_provider_api_attempts": max_provider_api_attempts,
+        "max_generation_attempts": max_provider_api_attempts,
     }
 
 
@@ -152,7 +174,10 @@ def build_tasks(
             source_document_override=config.source_document_override,
             prompt_family=prompt_family,
         )
-        for method, (language, translation), temperature, set_size, prompt_family in itertools.product(
+        for method, (
+            language,
+            translation,
+        ), temperature, set_size, prompt_family in itertools.product(
             config.methods,
             config.variant_pairs(),
             config.temperatures,
@@ -168,9 +193,7 @@ def _prefetch(
     """Raise the fd limit and fetch all ground truth for the grid."""
     validate_source_fixture(config)
     raise_file_descriptor_limit()
-    service = (
-        PassageService(cache_dir) if cache_dir is not None else PassageService()
-    )
+    service = PassageService(cache_dir) if cache_dir is not None else PassageService()
     passages = asyncio.run(prefetch_passages(config, service))
     return passages, service
 
@@ -214,9 +237,7 @@ def _run_eval(
     # Build model objects rather than passing bare strings so provider-specific
     # model args (e.g. Together's stream=true, required by some models) apply
     # per model without affecting the others.
-    models = [
-        get_model(m.inspect_model, **m.model_args) for m in config.models
-    ]
+    models = [get_model(m.inspect_model, **m.model_args) for m in config.models]
 
     inspect_eval(
         tasks=tasks,
@@ -269,8 +290,14 @@ def run_study(
 
     log_dir = run_dir / "logs"
     _run_eval(
-        config, passages, service, log_dir, epochs,
-        max_connections, max_tasks, display,
+        config,
+        passages,
+        service,
+        log_dir,
+        epochs,
+        max_connections,
+        max_tasks,
+        display,
     )
 
     from scripture_fidelity.export import export_package
@@ -308,9 +335,7 @@ def build_report(trial_rows: list[dict]) -> dict:
     def _metrics(means: dict) -> dict:
         return {m: means[m] for m in REPORT_METRICS if m in means}
 
-    detail_dims = tuple(
-        d for d in DIMENSIONS if d != "language_match"
-    )
+    detail_dims = tuple(d for d in DIMENSIONS if d != "language_match")
     detail = [
         {
             "key": dict(zip(detail_dims, key)),
@@ -369,8 +394,14 @@ def run_study_in_memory(
         passages, service = _prefetch(config, ephemeral_cache)
         log_dir = tmp_dir / "logs"
         _run_eval(
-            config, passages, service, log_dir, epochs,
-            max_connections, max_tasks, display="none",
+            config,
+            passages,
+            service,
+            log_dir,
+            epochs,
+            max_connections,
+            max_tasks,
+            display="none",
         )
         trial_rows = build_trial_rows(log_dir)
         ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

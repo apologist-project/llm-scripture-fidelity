@@ -52,6 +52,11 @@ def test_valid_config(monkeypatch):
 def test_prompt_families_are_crossed_as_preregistered_treatments(monkeypatch):
     set_env(
         monkeypatch,
+        REFERENCES=(
+            '[{"ref": "John 3:16", "type": "well_known_single", '
+            '"description": "God gives His Son"}, '
+            '{"ref": "Psalm 117", "description": "All nations praise the Lord"}]'
+        ),
         PROMPT_FAMILIES='["explicit_reference", "contextual_description"]',
     )
     config = load_config()
@@ -67,6 +72,13 @@ def test_unknown_prompt_family_is_rejected(monkeypatch):
     set_env(monkeypatch, PROMPT_FAMILIES='["marketing_copy"]')
 
     with pytest.raises(ConfigError, match="PROMPT_FAMILIES"):
+        load_config()
+
+
+def test_contextual_prompt_family_requires_descriptions(monkeypatch):
+    set_env(monkeypatch, PROMPT_FAMILIES='["contextual_description"]')
+
+    with pytest.raises(ConfigError, match="description"):
         load_config()
 
 
@@ -519,9 +531,7 @@ def test_confirmatory_accepts_single_valued_grid(monkeypatch):
         ),
     ],
 )
-def test_confirmatory_openrouter_requires_locked_routing(
-    monkeypatch, routing, message
-):
+def test_confirmatory_openrouter_requires_locked_routing(monkeypatch, routing, message):
     import json
 
     model = {
@@ -561,7 +571,26 @@ def test_call_accounting(monkeypatch):
     assert accounting["planned_requests"] == 24
     # 2 methods x 1 pair x 1 model x 2 temps x 1 set size x 3 epochs
     assert accounting["observations_per_reference"] == 12
-    assert (
-        accounting["max_generation_attempts"]
-        == 24 * (1 + accounting["retry_on_error"])
+    assert accounting["planned_model_turn_ceiling"] == 24
+    assert accounting["max_provider_api_attempts"] == 24 * (
+        1 + accounting["max_http_retries_per_attempt"]
     )
+    assert (
+        accounting["max_generation_attempts"] == accounting["max_provider_api_attempts"]
+    )
+
+
+def test_call_accounting_includes_bounded_tool_followup(monkeypatch):
+    from scripture_fidelity.runner import call_accounting
+
+    set_env(
+        monkeypatch,
+        METHODS='["unassisted", "tool_call", "buffer_transform_selection"]',
+        REFERENCES=('[{"ref": "John 3:16", "description": "God gives His Son."}]'),
+        TEMPERATURES="[null]",
+    )
+    accounting = call_accounting(load_config(), epochs=2)
+
+    assert accounting["planned_requests"] == 6
+    assert accounting["planned_model_turn_ceiling"] == 8
+    assert accounting["max_provider_api_attempts"] == 48

@@ -17,10 +17,22 @@ QUOTE_ATTR_RE = re.compile(
 # Characters normalized to ASCII equivalents before comparison
 _CHAR_MAP = str.maketrans(
     {
-        "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
-        "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
-        "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-",
-        "\u00a0": " ", "\u2009": " ", "\u200a": " ", "\u2028": " ",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201b": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u201f": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2015": "-",
+        "\u2212": "-",
+        "\u00a0": " ",
+        "\u2009": " ",
+        "\u200a": " ",
+        "\u2028": " ",
     }
 )
 
@@ -64,9 +76,7 @@ def extract_quotes(completion: str, references: list[str]) -> dict[str, str]:
         if attr:
             try:
                 attr_parsed = parse_reference(attr)
-                target = next(
-                    (r for r in references if parsed[r] == attr_parsed), None
-                )
+                target = next((r for r in references if parsed[r] == attr_parsed), None)
             except ReferenceError:
                 target = None
         if target is not None:
@@ -145,9 +155,7 @@ def compute_metrics(
     normalized_match = 1.0 if norm_answer == norm_truth else 0.0
     similarity = fuzz.ratio(norm_answer, norm_truth) / 100.0 if norm_truth else 0.0
     cer = (
-        Levenshtein.normalized_distance(norm_truth, norm_answer)
-        if norm_truth
-        else 1.0
+        Levenshtein.normalized_distance(norm_truth, norm_answer) if norm_truth else 1.0
     )
 
     norm_verses = [normalize(v, language) for v in ground_truth_verses]
@@ -226,7 +234,8 @@ def tool_coverage(messages, tool_name: str, references: list[str]) -> float:
         for call in getattr(message, "tool_calls", None) or []:
             if call.function != tool_name:
                 continue
-            arg = (call.arguments or {}).get("reference", "")
+            arguments = call.arguments if isinstance(call.arguments, dict) else {}
+            arg = arguments.get("reference", "")
             try:
                 arg_parsed = parse_reference(str(arg))
             except ReferenceError:
@@ -254,14 +263,48 @@ def tool_coverage_by_reference(
         for call in getattr(message, "tool_calls", None) or []:
             if call.function != tool_name:
                 continue
+            arguments = call.arguments if isinstance(call.arguments, dict) else {}
             try:
-                called = parse_reference(str((call.arguments or {}).get("reference", "")))
+                called = parse_reference(str(arguments.get("reference", "")))
             except ReferenceError:
                 continue
             for ref, expected in parsed.items():
                 if expected == called:
                     covered[ref] = 1.0
     return covered
+
+
+def observed_tool_calls(
+    messages, tool_name: str, source_key: str = ""
+) -> list[dict[str, str | None]]:
+    """Return release-safe structured evidence for assigned-tool calls."""
+    from scripture_fidelity.references import ReferenceError, parse_reference
+
+    observed = []
+    for message in messages or []:
+        for call in getattr(message, "tool_calls", None) or []:
+            if call.function != tool_name:
+                continue
+            arguments = call.arguments if isinstance(call.arguments, dict) else {}
+            raw_reference = str(arguments.get("reference", ""))
+            canonical_reference = None
+            lookup_fixture_id = None
+            try:
+                parsed = parse_reference(raw_reference)
+                canonical_reference = parsed.usfm()
+                if source_key:
+                    lookup_fixture_id = f"{source_key}:{canonical_reference}"
+            except ReferenceError:
+                pass
+            observed.append(
+                {
+                    "tool_name": tool_name,
+                    "reference_raw": raw_reference,
+                    "reference_canonical": canonical_reference,
+                    "lookup_fixture_id": lookup_fixture_id,
+                }
+            )
+    return observed
 
 
 def compute_multi_metrics(
@@ -279,8 +322,7 @@ def compute_multi_metrics(
         for ref, truth, verses in zip(references, truths, verses_per_ref)
     ]
     return {
-        key: round(sum(m[key] for m in per_ref) / len(per_ref), 4)
-        for key in per_ref[0]
+        key: round(sum(m[key] for m in per_ref) / len(per_ref), 4) for key in per_ref[0]
     }
 
 
@@ -330,9 +372,7 @@ def quotation_fidelity():
             if multi:
                 quotes = extract_quotes(completion, references)
                 truths = state.metadata.get("ground_truth_texts", [])
-                verses_per_ref = state.metadata.get(
-                    "ground_truth_verses_per_ref", []
-                )
+                verses_per_ref = state.metadata.get("ground_truth_verses_per_ref", [])
                 metrics = compute_multi_metrics(
                     quotes,
                     truths,
@@ -365,9 +405,7 @@ def quotation_fidelity():
                             quotes.get(ref, ""), truth, verses, language
                         ),
                     }
-                    for ref, truth, verses in zip(
-                        references, truths, verses_per_ref
-                    )
+                    for ref, truth, verses in zip(references, truths, verses_per_ref)
                 ]
             else:
                 quote = extract_quote(completion)
@@ -410,25 +448,40 @@ def quotation_fidelity():
                 metrics["lookup_ok"] = 1.0
                 metrics["replacement_ok"] = 1.0
             expected_tool = METHOD_TOOLS.get(method)
+            tool_call_evidence = (
+                observed_tool_calls(
+                    state.messages,
+                    expected_tool,
+                    str(state.metadata.get("translation_source_key") or ""),
+                )
+                if expected_tool
+                else []
+            )
             if expected_tool is None:
                 metrics["tool_invoked"] = 0.0
                 metrics["tool_used"] = 1.0
-            elif multi and method == "tool_call":
+            elif method == "tool_call":
+                expected_references = (
+                    references
+                    if multi
+                    else [str(state.metadata.get("reference") or "")]
+                )
                 coverage_by_ref = tool_coverage_by_reference(
-                    state.messages, expected_tool, references
+                    state.messages, expected_tool, expected_references
                 )
                 observed_tool_coverage = round(
-                    sum(coverage_by_ref.values()) / len(references), 4
+                    sum(coverage_by_ref.values()) / len(expected_references), 4
                 )
-                metrics["tool_invoked"] = observed_tool_coverage
+                metrics["tool_invoked"] = 1.0 if tool_call_evidence else 0.0
                 metrics["tool_used"] = observed_tool_coverage
-                for item in per_reference:
-                    item["metrics"]["tool_invoked"] = coverage_by_ref[
-                        item["reference"]
-                    ]
-                    item["metrics"]["tool_used"] = coverage_by_ref[
-                        item["reference"]
-                    ]
+                if multi:
+                    for item in per_reference:
+                        item["metrics"]["tool_invoked"] = (
+                            1.0 if tool_call_evidence else 0.0
+                        )
+                        item["metrics"]["tool_used"] = coverage_by_ref[
+                            item["reference"]
+                        ]
             else:
                 observed_tool_invocation = (
                     1.0 if tool_was_used(state.messages, expected_tool) else 0.0
@@ -453,8 +506,12 @@ def quotation_fidelity():
 
             failure_tags = []
             if metrics["tool_used"] < 1.0:
-                if metrics["tool_used"] == 0.0:
+                if metrics["tool_invoked"] == 0.0:
                     failure_tags.append(f"{expected_tool} tool not used")
+                elif metrics["tool_used"] == 0.0:
+                    failure_tags.append(
+                        f"{expected_tool} did not retrieve a requested reference"
+                    )
                 else:
                     failure_tags.append(
                         f"{expected_tool} covered only "
@@ -473,9 +530,7 @@ def quotation_fidelity():
                 f"end_to_end_exact={metrics['end_to_end_exact']:g}"
             )
             if failure_tags:
-                explanation += (
-                    " | method noncompliance: " + "; ".join(failure_tags)
-                )
+                explanation += " | method noncompliance: " + "; ".join(failure_tags)
             return Score(
                 value=metrics,
                 answer=answer,
@@ -484,13 +539,17 @@ def quotation_fidelity():
                     "raw_output": state.store.get("raw_output") or completion,
                     "final_output": completion,
                     "failure_tags": failure_tags,
-                    "selected_reference_raw": state.store.get(
-                        "selected_reference_raw"
-                    ),
+                    "selected_reference_raw": state.store.get("selected_reference_raw"),
                     "selected_reference_parsed": state.store.get(
                         "selected_reference_parsed"
                     ),
                     "lookup_fixture_id": state.store.get("lookup_fixture_id"),
+                    "tool_calls": tool_call_evidence,
+                    "tool_lookup_fixture_ids": [
+                        item["lookup_fixture_id"]
+                        for item in tool_call_evidence
+                        if item["lookup_fixture_id"]
+                    ],
                     "per_reference": per_reference,
                 },
             )

@@ -1,11 +1,19 @@
 """Tests for the buffer-transform placeholder transform."""
 
 import asyncio
+from dataclasses import dataclass
+from types import SimpleNamespace
 
+import pytest
+
+from scripture_fidelity.config import TranslationConfig
+from scripture_fidelity.references import parse_reference
 from scripture_fidelity.solvers import (
     apply_buffer_transform,
     apply_buffer_transform_multi,
     apply_buffer_transform_selection,
+    bounded_tool_generation,
+    literal_system_template,
 )
 
 TRUTH = "For God so loved the world..."
@@ -95,12 +103,6 @@ def test_multi_alias_reference_matches():
 
 # --- buffer_transform_selection ---------------------------------------------
 
-from dataclasses import dataclass
-
-from scripture_fidelity.config import TranslationConfig
-from scripture_fidelity.references import parse_reference
-from scripture_fidelity.solvers import literal_system_template
-
 TRANSLATION = TranslationConfig(
     id="BSB", language="eng", api="ao_lab", api_bible_id="BSB"
 )
@@ -110,6 +112,51 @@ def test_literal_system_template_preserves_double_brace_grammar_after_format():
     prompt = "Return <quote>{{QUOTE:<reference>}}</quote>."
 
     assert literal_system_template(prompt).format() == prompt
+
+
+@pytest.mark.asyncio
+async def test_bounded_tool_generation_allows_one_tool_round_and_final_turn():
+    calls = []
+    assigned_tool = SimpleNamespace(name="get_passage")
+    state = SimpleNamespace(messages=[], tools=[assigned_tool])
+
+    async def fake_generate(current, *, tool_calls):
+        calls.append((tool_calls, list(current.tools)))
+        if tool_calls == "single":
+            current.messages.append(
+                SimpleNamespace(
+                    tool_calls=[
+                        SimpleNamespace(
+                            function="get_passage",
+                            arguments={"reference": "John 3:16"},
+                        )
+                    ]
+                )
+            )
+        return current
+
+    result = await bounded_tool_generation("get_passage")(state, fake_generate)
+
+    assert result is state
+    assert calls == [("single", [assigned_tool]), ("none", [])]
+    assert result.tools == []
+
+
+@pytest.mark.asyncio
+async def test_bounded_tool_generation_stops_when_model_bypasses_tool():
+    calls = []
+    assigned_tool = SimpleNamespace(name="get_passage")
+    state = SimpleNamespace(messages=[], tools=[assigned_tool])
+
+    async def fake_generate(current, *, tool_calls):
+        calls.append(tool_calls)
+        return current
+
+    await bounded_tool_generation("get_passage")(state, fake_generate)
+
+    assert calls == ["single"]
+    assert state.tools == [assigned_tool]
+
 
 # Fixture texts keyed by canonical USFM — the lookup only knows these
 FIXTURES = {

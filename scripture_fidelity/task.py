@@ -13,7 +13,7 @@ from scripture_fidelity.bible.service import PassageService
 from scripture_fidelity.config import ReferenceConfig, TranslationConfig, fixture_id
 from scripture_fidelity.prompts import build_multi_prompt, build_prompt
 from scripture_fidelity.scoring import quotation_fidelity
-from scripture_fidelity.solvers import solver_chain
+from scripture_fidelity.solvers import MAX_MODEL_TURNS_PER_SAMPLE, solver_chain
 
 SCORER_NAME = "quotation_fidelity"
 
@@ -30,6 +30,28 @@ def _neutral_caller_prompt(
         return (
             f"Quote the passage from the {translation.display_name} described "
             f"as follows: {ref.description} Return only the requested source text."
+        )
+    raise ValueError(f"Unsupported neutral prompt family: {prompt_family}")
+
+
+def _neutral_multi_caller_prompt(
+    *,
+    prompt_family: str,
+    refs: list[ReferenceConfig],
+    translation: TranslationConfig,
+) -> str:
+    if prompt_family == "explicit_reference":
+        targets = "\n".join(f"- {ref.ref}" for ref in refs)
+        return (
+            f"Quote each of the following passages from "
+            f"{translation.display_name} exactly:\n{targets}\n"
+            "Return only the requested source texts."
+        )
+    if prompt_family == "contextual_description":
+        targets = "\n".join(f"- {ref.description}" for ref in refs)
+        return (
+            f"Quote each passage from {translation.display_name} described "
+            f"below:\n{targets}\nReturn only the requested source texts."
         )
     raise ValueError(f"Unsupported neutral prompt family: {prompt_family}")
 
@@ -86,7 +108,12 @@ def build_sample(
     source_document_override: str = "",
     prompt_family: str = "method_specific",
 ) -> Sample:
-    wrap_source_separately = method == "rag" and language == "eng"
+    wrap_source_separately = method == "rag" and (
+        language == "eng" or prompt_family != "method_specific" or bool(prompt_override)
+    )
+    source_document = (
+        source_document_override or passage.text if method == "rag" else ""
+    )
     generated_prompt = build_prompt(
         language=language,
         method="unassisted" if wrap_source_separately else method,
@@ -94,9 +121,7 @@ def build_sample(
         translation_name=translation.display_name,
         translation_id=translation.id,
         context=(
-            source_document_override or passage.text
-            if method == "rag" and not wrap_source_separately
-            else ""
+            source_document if method == "rag" and not wrap_source_separately else ""
         ),
         description=ref.description,
     )
@@ -110,11 +135,7 @@ def build_sample(
         ),
         method=method,
         prompt_override=prompt_override,
-        source_document_override=(
-            source_document_override or passage.text
-            if wrap_source_separately
-            else source_document_override
-        ),
+        source_document_override=(source_document if wrap_source_separately else ""),
     )
     request_context = request_context or {}
     return Sample(
@@ -130,6 +151,7 @@ def build_sample(
             "translation": translation.id,
             "translation_api": translation.api,
             "translation_bible_id": translation.api_bible_id,
+            "translation_source_key": translation.source_key,
             "fixture_id": fixture_id(translation, ref.ref),
             "text_language": translation.language,
             "prompt_language": language,
@@ -151,10 +173,10 @@ def build_sample(
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
             ),
-            "source_document_supplied": bool(source_document_override),
+            "source_document_supplied": bool(source_document),
             "source_document_sha256": (
-                hashlib.sha256(source_document_override.encode("utf-8")).hexdigest()
-                if source_document_override
+                hashlib.sha256(source_document.encode("utf-8")).hexdigest()
+                if source_document
                 else None
             ),
         },
@@ -174,24 +196,48 @@ def build_multi_sample(
     prompt_override: str = "",
     request_context: dict | None = None,
     source_document_override: str = "",
+    prompt_family: str = "method_specific",
 ) -> Sample:
     """One sample asking for several references in a single prompt.
 
     ``set_size`` is the configured chunk size (the study arm), which may
     exceed len(refs) for the final remainder chunk."""
     ref_strings = [r.ref for r in refs]
-    prompt = build_multi_prompt(
-        language=language,
-        method=method,
-        references=ref_strings,
-        translation_name=translation.display_name,
-        translation_id=translation.id,
-        contexts=(
-            [(r, passages[r].text) for r in ref_strings] if method == "rag" else None
-        ),
+    source_document = (
+        "\n\n".join(
+            f'<passage ref="{ref}">\n{passages[ref].text}\n</passage>'
+            for ref in ref_strings
+        )
+        if method == "rag"
+        else ""
     )
-    if prompt_override:
-        prompt = prompt_override
+    if prompt_family == "method_specific":
+        generated_prompt = build_multi_prompt(
+            language=language,
+            method=method,
+            references=ref_strings,
+            translation_name=translation.display_name,
+            translation_id=translation.id,
+            contexts=(
+                [(r, passages[r].text) for r in ref_strings]
+                if method == "rag"
+                else None
+            ),
+        )
+        caller_prompt = prompt_override or generated_prompt
+        prompt = caller_prompt
+    else:
+        generated_prompt = _neutral_multi_caller_prompt(
+            prompt_family=prompt_family,
+            refs=refs,
+            translation=translation,
+        )
+        caller_prompt, prompt = _model_input(
+            generated_prompt,
+            method=method,
+            prompt_override=prompt_override,
+            source_document_override=source_document,
+        )
     request_context = request_context or {}
     return Sample(
         id=request_context.get("scenario_id") or "; ".join(ref_strings),
@@ -201,9 +247,11 @@ def build_multi_sample(
             "reference": "; ".join(ref_strings),
             "ref_type": "set",
             "method": method,
+            "prompt_family": prompt_family,
             "translation": translation.id,
             "translation_api": translation.api,
             "translation_bible_id": translation.api_bible_id,
+            "translation_source_key": translation.source_key,
             "fixture_ids": [fixture_id(translation, r) for r in ref_strings],
             "text_language": translation.language,
             "prompt_language": language,
@@ -222,12 +270,18 @@ def build_multi_sample(
             "protocol_version": request_context.get("protocol_version") or None,
             "repetition": int(request_context.get("repetition", 1)),
             "prompt_source": "caller" if prompt_override else "generated",
-            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "prompt_sha256": hashlib.sha256(caller_prompt.encode("utf-8")).hexdigest(),
             "effective_user_input_sha256": hashlib.sha256(
                 prompt.encode("utf-8")
             ).hexdigest(),
             "source_fixture_id_requested": (
                 request_context.get("source_fixture_id") or None
+            ),
+            "source_document_supplied": bool(source_document),
+            "source_document_sha256": (
+                hashlib.sha256(source_document.encode("utf-8")).hexdigest()
+                if source_document
+                else None
             ),
         },
     )
@@ -285,6 +339,8 @@ def build_task(
                 protocol_role=protocol_role,
                 prompt_override=prompt_override,
                 request_context=request_context,
+                source_document_override=source_document_override,
+                prompt_family=prompt_family,
             )
             for i in range(0, len(references), set_size)
         ]
@@ -293,10 +349,9 @@ def build_task(
     )
     return Task(
         dataset=MemoryDataset(samples=samples, name=name),
-        solver=solver_chain(
-            method, language, translation, service, multi=set_size > 1
-        ),
+        solver=solver_chain(method, language, translation, service, multi=set_size > 1),
         scorer=quotation_fidelity(),
+        turn_limit=MAX_MODEL_TURNS_PER_SAMPLE,
         config=(
             GenerateConfig()
             if temperature is None

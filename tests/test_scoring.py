@@ -1,5 +1,7 @@
 """Tests for quote extraction, normalization, and fidelity metrics."""
 
+from types import SimpleNamespace
+
 from scripture_fidelity.scoring import (
     analyze_final_output,
     compute_metrics,
@@ -7,12 +9,12 @@ from scripture_fidelity.scoring import (
     extract_quote,
     extract_quotes,
     final_output_exact,
-    tool_coverage_by_reference,
     normalize,
+    observed_tool_calls,
     tool_coverage,
+    tool_coverage_by_reference,
     tool_was_used,
 )
-from types import SimpleNamespace
 
 BSB_JOHN_3_16 = (
     "For God so loved the world that He gave His one and only Son, "
@@ -36,7 +38,7 @@ def test_extract_quote_fallback_without_tags():
 
 def test_normalize_unifies_quotes_case_punct():
     assert normalize("\u201cHe said, \u2018Go!\u2019\u201d") == normalize(
-        '"he said, \'go\'"'
+        "\"he said, 'go'\""
     )
 
 
@@ -116,9 +118,7 @@ def test_clean_single_block_passes_final_output_exact():
 
 
 def test_two_quote_blocks_fail_final_output_exact():
-    completion = (
-        f"<quote>{BSB_JOHN_3_16}</quote><quote>{BSB_JOHN_3_16}</quote>"
-    )
+    completion = f"<quote>{BSB_JOHN_3_16}</quote><quote>{BSB_JOHN_3_16}</quote>"
     assert final_output_exact(completion, BSB_JOHN_3_16) == 0.0
     structure = analyze_final_output(completion)
     assert structure["quote_block_count"] == 2
@@ -144,9 +144,7 @@ def test_nested_quote_tags_fail_final_output_exact():
 
 
 def test_extraneous_text_detected():
-    structure = analyze_final_output(
-        f"Here you go: <quote>{BSB_JOHN_3_16}</quote>"
-    )
+    structure = analyze_final_output(f"Here you go: <quote>{BSB_JOHN_3_16}</quote>")
     assert structure["has_extraneous_text"] is True
     structure = analyze_final_output(f"<quote>{BSB_JOHN_3_16}</quote>\n")
     assert structure["has_extraneous_text"] is False
@@ -154,8 +152,7 @@ def test_extraneous_text_detected():
 
 def test_extract_quotes_attributed():
     completion = (
-        '<quote ref="Psalm 117">praise</quote>\n'
-        '<quote ref="John 3:16">love</quote>'
+        '<quote ref="Psalm 117">praise</quote>\n<quote ref="John 3:16">love</quote>'
     )
     quotes = extract_quotes(completion, ["John 3:16", "Psalm 117"])
     assert quotes == {"John 3:16": "love", "Psalm 117": "praise"}
@@ -223,3 +220,36 @@ def test_tool_coverage_fraction():
     assert tool_coverage(messages, "get_passage", refs) == 1 / 3
     assert tool_coverage(messages, "get_passage", ["John 3:16"]) == 1.0
     assert tool_coverage([], "get_passage", refs) == 0.0
+
+
+def test_observed_tool_calls_preserve_canonical_fixture_evidence():
+    from inspect_ai.model import ChatMessageAssistant
+    from inspect_ai.tool import ToolCall
+
+    calls = [
+        ToolCall(
+            id="1",
+            function="get_passage",
+            arguments={"reference": "Mt 5:1-12"},
+        ),
+        ToolCall(
+            id="2",
+            function="get_passage",
+            arguments={"reference": "not a reference"},
+        ),
+    ]
+
+    observed = observed_tool_calls(
+        [ChatMessageAssistant(content="", tool_calls=calls)],
+        "get_passage",
+        "ao_lab:BSB:BSB",
+    )
+
+    assert observed[0] == {
+        "tool_name": "get_passage",
+        "reference_raw": "Mt 5:1-12",
+        "reference_canonical": "MAT.5.1-MAT.5.12",
+        "lookup_fixture_id": "ao_lab:BSB:BSB:MAT.5.1-MAT.5.12",
+    }
+    assert observed[1]["reference_canonical"] is None
+    assert observed[1]["lookup_fixture_id"] is None

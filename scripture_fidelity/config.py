@@ -161,8 +161,7 @@ class StudyConfig:
         exact multiple. Size 1 reproduces single-reference samples.
         """
         return [
-            self.references[i : i + size]
-            for i in range(0, len(self.references), size)
+            self.references[i : i + size] for i in range(0, len(self.references), size)
         ]
 
     def sample_count(self) -> int:
@@ -234,18 +233,13 @@ class StudyConfig:
         return cls(
             references=[ReferenceConfig(**r) for r in data.get("references", [])],
             methods=list(data.get("methods", [])),
-            translations=[
-                TranslationConfig(**t) for t in data.get("translations", [])
-            ],
+            translations=[TranslationConfig(**t) for t in data.get("translations", [])],
             languages=list(data.get("languages", [])),
             models=[ModelConfig(**m) for m in data.get("models", [])],
             temperatures=[
-                None if t is None else float(t)
-                for t in data.get("temperatures", [])
+                None if t is None else float(t) for t in data.get("temperatures", [])
             ],
-            prompt_families=list(
-                data.get("prompt_families", ["method_specific"])
-            ),
+            prompt_families=list(data.get("prompt_families", ["method_specific"])),
             set_sizes=list(data.get("set_sizes", [1])),
             language_pairing_mode=data.get("language_pairing_mode", "matched"),
             language_pairs=[tuple(p) for p in data.get("language_pairs", [])],
@@ -375,8 +369,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         provider_routing = item.get("provider_routing", {})
         if not isinstance(provider_routing, dict):
             raise ConfigError(
-                "MODELS provider_routing must be an object: "
-                f"{provider_routing!r}"
+                f"MODELS provider_routing must be an object: {provider_routing!r}"
             )
         if provider_routing and item["provider"] != "openrouter":
             raise ConfigError(
@@ -392,24 +385,21 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
         )
 
     temperatures = [
-        None if t is None else float(t)
-        for t in _load_json_env("TEMPERATURES")
+        None if t is None else float(t) for t in _load_json_env("TEMPERATURES")
     ]
     prompt_families = [
         str(item)
-        for item in _load_json_env(
-            "PROMPT_FAMILIES", default=["method_specific"]
-        )
+        for item in _load_json_env("PROMPT_FAMILIES", default=["method_specific"])
     ]
-    unknown_prompt_families = sorted(
-        set(prompt_families) - set(VALID_PROMPT_FAMILIES)
-    )
+    unknown_prompt_families = sorted(set(prompt_families) - set(VALID_PROMPT_FAMILIES))
     if unknown_prompt_families:
         raise ConfigError(
             f"Unknown PROMPT_FAMILIES {unknown_prompt_families} "
             f"(expected values from {VALID_PROMPT_FAMILIES})"
         )
-    if any(not model.supports_temperature for model in models) and temperatures != [None]:
+    if any(not model.supports_temperature for model in models) and temperatures != [
+        None
+    ]:
         unsupported = [m.inspect_model for m in models if not m.supports_temperature]
         raise ConfigError(
             "Models declared with supports_temperature=false require "
@@ -427,8 +417,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
     protocol_role = os.environ.get("PROTOCOL_ROLE", "").strip()
     if not protocol_role:
         raise ConfigError(
-            "Missing required env var PROTOCOL_ROLE "
-            f"(one of {VALID_PROTOCOL_ROLES})"
+            f"Missing required env var PROTOCOL_ROLE (one of {VALID_PROTOCOL_ROLES})"
         )
     if protocol_role not in VALID_PROTOCOL_ROLES:
         raise ConfigError(
@@ -462,9 +451,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 )
             lang, tid = str(pair[0]), str(pair[1])
             if lang not in languages:
-                raise ConfigError(
-                    f"LANGUAGE_PAIRS language {lang!r} not in LANGUAGES"
-                )
+                raise ConfigError(f"LANGUAGE_PAIRS language {lang!r} not in LANGUAGES")
             if tid not in translation_ids:
                 raise ConfigError(
                     f"LANGUAGE_PAIRS translation {tid!r} not in TRANSLATIONS"
@@ -540,13 +527,18 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                     "provider_routing.data_collection='deny'"
                 )
 
-    if "buffer_transform_selection" in methods:
+    if (
+        "buffer_transform_selection" in methods
+        or "contextual_description" in prompt_families
+    ):
         missing_desc = [r.ref for r in references if not r.description]
         if missing_desc:
             raise ConfigError(
-                "The buffer_transform_selection method requires a 'description' "
+                "Reference-selection and contextual prompt families require a "
+                "'description' "
                 f"for every REFERENCES entry; missing for: {missing_desc}"
             )
+    if "buffer_transform_selection" in methods:
         if set_sizes != [1]:
             raise ConfigError(
                 "The buffer_transform_selection method only supports "

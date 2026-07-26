@@ -126,9 +126,9 @@ def build_source_fixtures(
                 "translation_name": translation.display_name,
                 "language": translation.language,
                 "reference": ref_str,
-                "canonical_reference": fixture_id(translation, ref_str).rsplit(
-                    ":", 1
-                )[-1],
+                "canonical_reference": fixture_id(translation, ref_str).rsplit(":", 1)[
+                    -1
+                ],
                 "retrieved_at": passage.retrieved_at,
                 "text_sha256": passage.text_sha256,
                 "normalized_text_sha256": passage.text_sha256,
@@ -152,6 +152,11 @@ def build_method_configs(config: StudyConfig) -> dict:
     for method in config.methods:
         methods[method] = {
             "tool": METHOD_TOOLS.get(method),
+            "generation": (
+                "one_tool_round_then_final_response"
+                if method in METHOD_TOOLS
+                else "single_model_turn"
+            ),
             "transform": (
                 "buffer_transform_solver"
                 if method == "buffer_transform"
@@ -183,12 +188,8 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
     """Expand one Inspect sample into per-reference trial rows."""
     md = sample.metadata or {}
     scores = sample.scores or {}
-    score = next(
-        (s for s in scores.values() if isinstance(s.value, dict)), None
-    )
-    metrics = (
-        {k: float(v) for k, v in score.value.items()} if score is not None else {}
-    )
+    score = next((s for s in scores.values() if isinstance(s.value, dict)), None)
+    metrics = {k: float(v) for k, v in score.value.items()} if score is not None else {}
     score_md = (score.metadata or {}) if score is not None else {}
     resolved_model = str(getattr(sample.output, "model", "") or "") or None
     usage = getattr(sample.output, "usage", None)
@@ -242,6 +243,8 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
         "selected_reference_raw": score_md.get("selected_reference_raw"),
         "selected_reference_parsed": score_md.get("selected_reference_parsed"),
         "lookup_fixture_id": score_md.get("lookup_fixture_id"),
+        "tool_calls": score_md.get("tool_calls", []),
+        "tool_lookup_fixture_ids": score_md.get("tool_lookup_fixture_ids", []),
         "request_metrics": metrics,
     }
     return _expand_references(md, metrics, score, score_md, common)
@@ -340,17 +343,19 @@ def build_run_manifest(
             if r["requested_model"] not in requested:
                 requested.append(r["requested_model"])
     actual_providers = sorted(
-        {
-            provider
-            for row in trial_rows
-            for provider in row.get("actual_providers", [])
-        }
+        {provider for row in trial_rows for provider in row.get("actual_providers", [])}
     )
-    provider_reported_costs = [
-        row["provider_reported_cost"]
-        for row in trial_rows
-        if isinstance(row.get("provider_reported_cost"), (int, float))
-    ]
+    provider_reported_costs = []
+    for request_id, rows in by_request.items():
+        costs = {
+            float(row["provider_reported_cost"])
+            for row in rows
+            if isinstance(row.get("provider_reported_cost"), (int, float))
+        }
+        if len(costs) > 1:
+            raise ExportError(f"Conflicting provider costs for request {request_id!r}")
+        if costs:
+            provider_reported_costs.append(costs.pop())
     return {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "run_id": run_id,
@@ -375,9 +380,7 @@ def build_run_manifest(
         # (e.g. Together's stream=true); recorded so the request shape is
         # auditable alongside the shared generation controls.
         "model_args": {
-            m.inspect_model: m.model_args
-            for m in config.models
-            if m.model_args
+            m.inspect_model: m.model_args for m in config.models if m.model_args
         },
         "counts": {
             "expected_samples": expected,
@@ -428,8 +431,7 @@ def export_package(
     def _write_jsonl(name: str, rows: list[dict]) -> None:
         (out_dir / name).write_text(
             "".join(
-                json.dumps(row, ensure_ascii=False, default=str) + "\n"
-                for row in rows
+                json.dumps(row, ensure_ascii=False, default=str) + "\n" for row in rows
             ),
             encoding="utf-8",
         )

@@ -2,7 +2,7 @@
 
 Research study for methods of quoting Scripture with high fidelity.
 
-The study measures how faithfully LLMs can reproduce Bible passages word for word, comparing five quotation methods across a configurable grid of scripture references, Bible translations, prompt languages, models, and sampling temperatures. It is built on [Inspect](https://inspect.aisi.org.uk/) for evaluation orchestration and scores every trial deterministically against ground-truth text fetched from Bible APIs.
+The study measures how faithfully LLMs can reproduce Bible passages word for word, comparing six quotation methods across a configurable grid of scripture references, Bible translations, prompt languages, models, and sampling temperatures. It is built on [Inspect](https://inspect.aisi.org.uk/) for evaluation orchestration and scores every trial deterministically against ground-truth text fetched from Bible APIs.
 
 ## Quotation methods
 
@@ -13,6 +13,7 @@ The study measures how faithfully LLMs can reproduce Bible passages word for wor
 | `tool_call` | The model is given a `get_passage` tool that fetches the exact text from a Bible API. |
 | `web_search` | The model is given a `search_web` tool (Parallel.ai Search API) and must find the text on the open web. |
 | `buffer_transform` | The model emits a `{{QUOTE:<reference>}}` placeholder that is programmatically replaced with the exact text in a post-generation transform. |
+| `buffer_transform_selection` | The model identifies a passage by emitting a reference placeholder; the selected reference is retrieved and rendered deterministically. |
 
 ## Installation
 
@@ -24,6 +25,11 @@ cd llm-scripture-fidelity
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+```
+
+With [uv](https://docs.astral.sh/uv/), the equivalent reproducible setup is
+```bash
+uv sync --frozen --extra dev --extra api
 ```
 
 ## Configuration
@@ -103,6 +109,12 @@ Always start with a dry run to see the grid size and estimated call count before
 ```bash
 scripture-fidelity run --dry-run
 ```
+
+The dry run reports both a semantic model-turn ceiling and a provider-attempt
+ceiling. Tool-mediated methods permit one tool-call turn followed by one final
+response; all other methods use one model turn. The provider-attempt ceiling
+also includes bounded transport retries and is therefore a conservative
+operational limit, not a count of independent experimental observations.
 
 Then run the full study (or a subset):
 
@@ -207,7 +219,8 @@ All metrics are deterministic string comparisons (no LLM judge). The quoted pass
 | `verse_coverage` | Fraction of ground-truth verses appearing verbatim (normalized) in the answer. |
 | `answered` | Whether the model produced any quote at all. |
 | `placeholder_ok` | For `buffer_transform`: whether the model emitted exactly one well-formed placeholder per requested reference. |
-| `tool_used` | For `tool_call`/`web_search`: whether the model actually invoked its assigned tool (`get_passage`/`search_web`). For multi-reference `tool_call` samples this is the *coverage*: the fraction of requested references actually looked up via `get_passage` (one call for three references scores 0.33). |
+| `tool_invoked` | Whether the model invoked the assigned tool at least once, even if it requested the wrong passage. |
+| `tool_used` | For `tool_call`, the fraction of requested references actually retrieved via `get_passage`; a wrong-reference call scores zero coverage. For `web_search`, whether the assigned search tool was invoked. |
 
 Observed text fidelity is never overwritten when a method instruction is disobeyed. `method_adherence` records tool/placeholder compliance, while `end_to_end_exact` is the conjunction of final-output exactness and applicable selection, lookup, replacement, and adherence components. This preserves the difference between quoting accurately from memory and successfully executing a tool-mediated condition.
 
@@ -217,7 +230,7 @@ With `REFERENCE_SET_SIZES` sizes > 1, a single prompt asks for several passages 
 
 ## Caching
 
-Ground-truth passages are cached on disk (`.cache/passages` by default), so repeated runs do not re-hit the Bible APIs. The same fetched text serves as the RAG context, the `get_passage` tool output, the buffer-transform replacement source, and the scoring ground truth — guaranteeing a consistent baseline across methods. Delete the cache directory to force re-fetching.
+Ground-truth passages are cached on disk (`.cache/passages` by default), so repeated runs do not re-hit the Bible APIs. The same fetched text serves as the RAG context, the `get_passage` tool output, the buffer-transform replacement source, and the scoring ground truth, guaranteeing a consistent baseline across methods. Trial exports record whether source text was supplied, its hash, the observed tool-call references, and the corresponding lookup fixture identities. Delete the cache directory to force re-fetching.
 
 ## Testing
 
@@ -242,7 +255,7 @@ scripture_fidelity/
   config.py         # .env parsing and validation
   references.py     # "John 3:16" -> canonical USFM reference
   prompts.py        # per-language prompt templates for each method
-  solvers.py        # Inspect solvers/tools for the five methods
+  solvers.py        # Inspect solvers/tools for the six methods
   task.py           # Inspect task factory (one task per variant)
   runner.py         # grid expansion, ground-truth prefetch, eval execution
   scoring.py        # metrics + Inspect scorer
