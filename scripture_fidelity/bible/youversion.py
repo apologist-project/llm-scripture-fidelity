@@ -21,6 +21,24 @@ BASE_URL = "https://api.youversion.com/v1"
 _TAG_RE = re.compile(r"<[^>]+>")
 _VERSE_LABEL_RE = re.compile(r"\{(\d+)\}|\[(\d+)\]")
 
+_ISO_639_3_TO_1 = {
+    "ara": "ar",
+    "ben": "bn",
+    "deu": "de",
+    "eng": "en",
+    "fra": "fr",
+    "hin": "hi",
+    "ind": "id",
+    "jpn": "ja",
+    "pan": "pa",
+    "por": "pt",
+    "rus": "ru",
+    "spa": "es",
+    "urd": "ur",
+    "zho": "zh",
+}
+_ISO_639_1_TO_3 = {value: key for key, value in _ISO_639_3_TO_1.items()}
+
 
 def strip_html(text: str) -> str:
     return re.sub(r"\s+", " ", _TAG_RE.sub(" ", text)).strip()
@@ -118,21 +136,46 @@ class YouVersionProvider(BibleProvider):
         return verses
 
     async def list_bibles(self, language: str | None = None) -> list[dict]:
-        params = {"language_ranges": language} if language else None
-        data = await self._get_json("/bibles", params)
-        items = data.get("data", data.get("bibles", []))
+        params: dict[str, str | int] = {"page_size": 99}
+        if language:
+            language_range = _ISO_639_3_TO_1.get(language, language)
+            params["language_ranges[]"] = f"{language_range}*"
+
         bibles = []
-        for b in items if isinstance(items, list) else []:
-            bibles.append(
-                {
-                    "id": b.get("id"),
-                    "name": b.get("title") or b.get("name") or b.get("local_title"),
-                    "abbreviation": b.get("abbreviation") or b.get("local_abbreviation"),
-                    "language": (
-                        b.get("language", {}).get("iso_639_3")
-                        if isinstance(b.get("language"), dict)
-                        else b.get("language")
-                    ),
-                }
-            )
+        while True:
+            data = await self._get_json("/bibles", params)
+            items = data.get("data", data.get("bibles", []))
+            for b in items if isinstance(items, list) else []:
+                language_value = b.get("language")
+                if isinstance(language_value, dict):
+                    language_code = (
+                        language_value.get("iso_639_3")
+                        or language_value.get("iso_639_1")
+                    )
+                else:
+                    language_code = b.get("language_tag") or language_value
+                base_language = str(language_code or "").split("-", 1)[0]
+                bibles.append(
+                    {
+                        "id": b.get("id"),
+                        "name": (
+                            b.get("localized_title")
+                            or b.get("title")
+                            or b.get("name")
+                            or b.get("local_title")
+                        ),
+                        "abbreviation": (
+                            b.get("localized_abbreviation")
+                            or b.get("abbreviation")
+                            or b.get("local_abbreviation")
+                        ),
+                        "language": _ISO_639_1_TO_3.get(
+                            base_language, base_language
+                        ),
+                    }
+                )
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+            params["page_token"] = str(page_token)
         return bibles
