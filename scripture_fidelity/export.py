@@ -57,6 +57,46 @@ def _structured_error(error) -> dict | None:
     }
 
 
+def _model_call_provenance(sample) -> dict:
+    """Extract provider provenance retained by Inspect model-call events."""
+    response_ids: list[str] = []
+    providers: list[str] = []
+    response_models: list[str] = []
+    total_cost = 0.0
+    cost_observed = False
+    model_call_count = 0
+
+    for event in getattr(sample, "events", None) or []:
+        if getattr(event, "event", None) != "model":
+            continue
+        call = getattr(event, "call", None)
+        response = getattr(call, "response", None) if call is not None else None
+        if not isinstance(response, dict):
+            continue
+        model_call_count += 1
+        response_id = response.get("id")
+        provider = response.get("provider")
+        response_model = response.get("model")
+        if response_id:
+            response_ids.append(str(response_id))
+        if provider and str(provider) not in providers:
+            providers.append(str(provider))
+        if response_model and str(response_model) not in response_models:
+            response_models.append(str(response_model))
+        cost = (response.get("usage") or {}).get("cost")
+        if isinstance(cost, (int, float)):
+            total_cost += float(cost)
+            cost_observed = True
+
+    return {
+        "model_call_count": model_call_count,
+        "provider_response_ids": response_ids,
+        "actual_providers": providers,
+        "response_models": response_models,
+        "provider_reported_cost": total_cost if cost_observed else None,
+    }
+
+
 def build_source_fixtures(
     config: StudyConfig, passages: dict[str, dict[str, Passage]]
 ) -> list[dict]:
@@ -153,6 +193,7 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
     resolved_model = str(getattr(sample.output, "model", "") or "") or None
     usage = getattr(sample.output, "usage", None)
     error = _structured_error(getattr(sample, "error", None))
+    call_provenance = _model_call_provenance(sample)
 
     # run_id is shared across every task in one eval() invocation, so the
     # task identity (variant + model) must be part of the request id.
@@ -171,6 +212,7 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
         "repetition": md.get("repetition", sample.epoch),
         "requested_model": requested_model,
         "resolved_model": resolved_model,
+        **call_provenance,
         "method": md.get("method"),
         "prompt_family": md.get("prompt_family", "method_specific"),
         "translation": md.get("translation"),
@@ -297,6 +339,18 @@ def build_run_manifest(
             requested = alias_map.setdefault(r["resolved_model"], [])
             if r["requested_model"] not in requested:
                 requested.append(r["requested_model"])
+    actual_providers = sorted(
+        {
+            provider
+            for row in trial_rows
+            for provider in row.get("actual_providers", [])
+        }
+    )
+    provider_reported_costs = [
+        row["provider_reported_cost"]
+        for row in trial_rows
+        if isinstance(row.get("provider_reported_cost"), (int, float))
+    ]
     return {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "run_id": run_id,
@@ -313,6 +367,10 @@ def build_run_manifest(
         "requested_models": [m.inspect_model for m in config.models],
         "resolved_models": resolved_models,
         "model_alias_map": alias_map,
+        "actual_providers": actual_providers,
+        "provider_reported_cost": (
+            sum(provider_reported_costs) if provider_reported_costs else None
+        ),
         # Provider-specific Inspect model args actually applied per model
         # (e.g. Together's stream=true); recorded so the request shape is
         # auditable alongside the shared generation controls.

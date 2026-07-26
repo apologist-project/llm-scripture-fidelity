@@ -15,6 +15,7 @@ from scripture_fidelity.config import (
 from scripture_fidelity.export import (
     ExportError,
     _expand_references,
+    _model_call_provenance,
     _structured_error,
     build_run_manifest,
     build_scoring_config,
@@ -195,6 +196,63 @@ def test_manifest_records_openrouter_provider_routing():
     manifest = build_run_manifest(config, [make_trial_row()], epochs=1)
     assert manifest["model_args"] == {
         "openrouter/anthropic/claude-sonnet-5": {"provider": routing}
+    }
+
+
+def test_manifest_aggregates_provider_identity_and_cost():
+    rows = [
+        make_trial_row(
+            actual_providers=["OpenAI"],
+            provider_reported_cost=0.012,
+        ),
+        make_trial_row(
+            request_id="run1:Psalm 117:1",
+            actual_providers=["OpenAI"],
+            provider_reported_cost=0.003,
+        ),
+    ]
+
+    manifest = build_run_manifest(make_config(), rows, epochs=2)
+
+    assert manifest["actual_providers"] == ["OpenAI"]
+    assert manifest["provider_reported_cost"] == pytest.approx(0.015)
+
+
+def test_model_call_provenance_preserves_provider_identity_and_cost():
+    sample = SimpleNamespace(
+        events=[
+            SimpleNamespace(event="state", call=None),
+            SimpleNamespace(
+                event="model",
+                call=SimpleNamespace(
+                    response={
+                        "id": "gen-first",
+                        "provider": "OpenAI",
+                        "model": "openai/gpt-5.6-sol",
+                        "usage": {"cost": 0.012},
+                    }
+                ),
+            ),
+            SimpleNamespace(
+                event="model",
+                call=SimpleNamespace(
+                    response={
+                        "id": "gen-second",
+                        "provider": "OpenAI",
+                        "model": "openai/gpt-5.6-sol",
+                        "usage": {"cost": 0.003},
+                    }
+                ),
+            ),
+        ]
+    )
+
+    assert _model_call_provenance(sample) == {
+        "model_call_count": 2,
+        "provider_response_ids": ["gen-first", "gen-second"],
+        "actual_providers": ["OpenAI"],
+        "response_models": ["openai/gpt-5.6-sol"],
+        "provider_reported_cost": pytest.approx(0.015),
     }
 
 
