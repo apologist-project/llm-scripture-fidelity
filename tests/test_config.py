@@ -159,17 +159,23 @@ def test_model_can_require_provider_default_temperature(monkeypatch):
     assert config.models[0].supports_temperature is False
 
 
-def test_temperature_is_rejected_for_incompatible_model(monkeypatch):
+def test_temperature_omit_models_mix_with_numeric_temperatures(monkeypatch):
     set_env(
         monkeypatch,
         MODELS=(
-            '[{"provider": "openai", "model": "no-temperature", '
+            '[{"provider": "mockllm", "model": "with-temp"}, '
+            '{"provider": "openai", "model": "no-temperature", '
             '"supports_temperature": false}]'
         ),
-        TEMPERATURES="[0.0]",
+        TEMPERATURES="[0.0, 0.5]",
     )
-    with pytest.raises(ConfigError, match="supports_temperature=false"):
-        load_config()
+    config = load_config()
+    assert config.model_temperature_slots() == 2 + 1
+    # 2 refs x 2 methods x 1 pair x (2+1) model-temp slots x 1 prompt family
+    assert config.permutation_count() == 2 * 2 * 1 * 3
+    assert [m.inspect_model for m in config.temperature_omit_models()] == [
+        "openai/no-temperature"
+    ]
 
 
 def test_set_sizes_config(monkeypatch):
@@ -622,6 +628,28 @@ def test_call_accounting_respects_transport_retry_override(monkeypatch):
     assert generation_controls(0)["max_retries"] == 0
     assert generation_controls(0)["retry_on_error"] == 0
     assert generation_controls()["max_retries"] == 5
+
+
+def test_call_accounting_uses_model_temperature_slots(monkeypatch):
+    from scripture_fidelity.runner import call_accounting
+
+    set_env(
+        monkeypatch,
+        MODELS=(
+            '[{"provider": "mockllm", "model": "with-temp"}, '
+            '{"provider": "openai", "model": "no-temp", '
+            '"supports_temperature": false}]'
+        ),
+        TEMPERATURES="[0.0, 0.5]",
+        METHODS='["unassisted"]',
+        REFERENCES='["John 3:16"]',
+    )
+    accounting = call_accounting(load_config(), epochs=1)
+    # 1 sample x 1 method x 1 pair x (2+1) model-temp slots
+    assert accounting["model_temperature_slots"] == 3
+    assert accounting["temperature_omit_models"] == 1
+    assert accounting["samples_per_epoch"] == 3
+    assert accounting["planned_requests"] == 3
 
 
 def test_call_accounting_includes_bounded_tool_followup(monkeypatch):

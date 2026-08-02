@@ -13,6 +13,7 @@ from scripture_fidelity.bible.base import Passage
 from scripture_fidelity.bible.service import PassageService
 from scripture_fidelity.config import (
     ConfigError,
+    ModelConfig,
     StudyConfig,
     TranslationConfig,
     fixture_id,
@@ -77,17 +78,19 @@ def call_accounting(
 
     ``max_retries`` is the per-turn HTTP/transport retry budget (Inspect
     ``max_retries``), covering rate limits and other transient provider
-    errors. Sample-level ``retry_on_error`` stays at zero.
+    errors. Sample-level ``retry_on_error`` stays at zero. Counts use
+    eligible ``(model, temperature)`` slots so models that omit temperature
+    are not multiplied by the full TEMPERATURES list.
     """
     if max_retries < 0:
         raise ConfigError("max_retries must be a non-negative integer")
+    model_temp_slots = config.model_temperature_slots()
     samples_per_epoch = config.permutation_count()
     planned_requests = samples_per_epoch * epochs
     observations_per_reference = (
         len(config.methods)
         * len(config.variant_pairs())
-        * len(config.models)
-        * len(config.temperatures)
+        * model_temp_slots
         * len(config.set_sizes)
         * len(config.prompt_families)
         * epochs
@@ -95,8 +98,7 @@ def call_accounting(
     requests_per_method = (
         config.sample_count()
         * len(config.variant_pairs())
-        * len(config.models)
-        * len(config.temperatures)
+        * model_temp_slots
         * len(config.prompt_families)
         * epochs
     )
@@ -111,6 +113,8 @@ def call_accounting(
         "epochs": epochs,
         "planned_requests": planned_requests,
         "observations_per_reference": observations_per_reference,
+        "model_temperature_slots": model_temp_slots,
+        "temperature_omit_models": len(config.temperature_omit_models()),
         "retry_on_error": RETRY_ON_ERROR,
         "max_http_retries_per_attempt": max_retries,
         "planned_model_turn_ceiling": planned_model_turn_ceiling,
@@ -170,10 +174,16 @@ def build_tasks(
     config: StudyConfig,
     passages: dict[str, dict[str, Passage]],
     service: PassageService,
+    temperatures: list[float | None] | None = None,
 ) -> list:
     """One Inspect task per (method, (language, translation) pair,
     temperature, set size). Pairs come from the declared pairing mode, so
-    crossed prompts are only generated when explicitly configured."""
+    crossed prompts are only generated when explicitly configured.
+
+    ``temperatures`` defaults to the study grid; callers may pass a subset
+    (e.g. ``[None]``) for models that omit temperature.
+    """
+    temps = config.temperatures if temperatures is None else temperatures
     request_context = {
         "request_id": config.request_id,
         "scenario_id": config.scenario_id,
@@ -204,7 +214,7 @@ def build_tasks(
         ), temperature, set_size, prompt_family in itertools.product(
             config.methods,
             config.variant_pairs(),
-            config.temperatures,
+            temps,
             config.set_sizes,
             config.prompt_families,
         )
@@ -254,22 +264,73 @@ def _run_eval(
 
     Inspect has no in-memory log mode; every caller must supply a writable
     ``log_dir`` (a run directory for the CLI, a temp dir for the API).
-    """
-    from inspect_ai import eval as inspect_eval
-    from inspect_ai.model import get_model
 
+    Models that support temperature share tasks for the full TEMPERATURES
+    grid. Models with ``supports_temperature=false`` run in a separate batch
+    at provider default (temperature omitted), even when TEMPERATURES has no
+    null entry.
+    """
     if max_retries < 0:
         raise ConfigError("max_retries must be a non-negative integer")
 
-    tasks = build_tasks(config, passages, service)
+    capable = config.temperature_capable_models()
+    omit = config.temperature_omit_models()
+    if capable:
+        _run_eval_batch(
+            config,
+            passages,
+            service,
+            log_dir,
+            epochs,
+            max_connections,
+            max_tasks,
+            display,
+            max_retries,
+            models=capable,
+            temperatures=config.temperatures,
+        )
+    if omit:
+        _run_eval_batch(
+            config,
+            passages,
+            service,
+            log_dir,
+            epochs,
+            max_connections,
+            max_tasks,
+            display,
+            max_retries,
+            models=omit,
+            temperatures=[None],
+        )
+
+
+def _run_eval_batch(
+    config: StudyConfig,
+    passages: dict[str, dict[str, Passage]],
+    service: PassageService,
+    log_dir: str | Path,
+    epochs: int,
+    max_connections: int,
+    max_tasks: int,
+    display: str,
+    max_retries: int,
+    models: list[ModelConfig],
+    temperatures: list[float | None],
+) -> None:
+    """One Inspect eval for a model cohort and temperature list."""
+    from inspect_ai import eval as inspect_eval
+    from inspect_ai.model import get_model
+
+    tasks = build_tasks(config, passages, service, temperatures=temperatures)
     # Build model objects rather than passing bare strings so provider-specific
     # model args (e.g. Together's stream=true, required by some models) apply
     # per model without affecting the others.
-    models = [get_model(m.inspect_model, **m.model_args) for m in config.models]
+    inspect_models = [get_model(m.inspect_model, **m.model_args) for m in models]
 
     inspect_eval(
         tasks=tasks,
-        model=models,
+        model=inspect_models,
         epochs=epochs,
         log_dir=str(log_dir),
         max_connections=max_connections,

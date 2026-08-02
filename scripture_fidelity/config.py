@@ -170,6 +170,24 @@ class StudyConfig:
         summed across all configured set sizes."""
         return sum(len(self.reference_sets(size)) for size in self.set_sizes)
 
+    def temperature_capable_models(self) -> list[ModelConfig]:
+        return [m for m in self.models if m.supports_temperature]
+
+    def temperature_omit_models(self) -> list[ModelConfig]:
+        """Models that must omit temperature (provider default only)."""
+        return [m for m in self.models if not m.supports_temperature]
+
+    def model_temperature_slots(self) -> int:
+        """Count of eligible (model, temperature) pairs for the study grid.
+
+        Temperature-capable models run every configured TEMPERATURES entry.
+        Models with supports_temperature=false run once at provider default
+        (temperature omitted), even when TEMPERATURES has no null entry.
+        """
+        capable = len(self.temperature_capable_models())
+        omit = len(self.temperature_omit_models())
+        return capable * len(self.temperatures) + omit
+
     def variant_counts(self) -> dict[str, int]:
         return {
             "references": len(self.references),
@@ -181,6 +199,8 @@ class StudyConfig:
             "models": len(self.models),
             "temperatures": len(self.temperatures),
             "prompt_families": len(self.prompt_families),
+            "model_temperature_slots": self.model_temperature_slots(),
+            "temperature_omit_models": len(self.temperature_omit_models()),
         }
 
     def permutation_count(self) -> int:
@@ -188,8 +208,7 @@ class StudyConfig:
             self.sample_count()
             * len(self.methods)
             * len(self.variant_pairs())
-            * len(self.models)
-            * len(self.temperatures)
+            * self.model_temperature_slots()
             * len(self.prompt_families)
         )
 
@@ -406,15 +425,6 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
             f"Unknown PROMPT_FAMILIES {unknown_prompt_families} "
             f"(expected values from {VALID_PROMPT_FAMILIES})"
         )
-    if any(not model.supports_temperature for model in models) and temperatures != [
-        None
-    ]:
-        unsupported = [m.inspect_model for m in models if not m.supports_temperature]
-        raise ConfigError(
-            "Models declared with supports_temperature=false require "
-            f"TEMPERATURES=[null]; incompatible models: {unsupported}"
-        )
-
     set_sizes = []
     for size in _load_json_env("REFERENCE_SET_SIZES", default=[1]):
         if not isinstance(size, int) or isinstance(size, bool) or size < 1:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -12,7 +13,20 @@ from rich.console import Console
 console = Console()
 
 
+def _quiet_native_runtime_logs() -> None:
+    """Suppress noisy native gRPC/Abseil INFO lines (e.g. fork_posix.cc).
+
+    These are emitted by C++ gRPC when Google (and similar) clients are used
+    under asyncio/thread pools. Must be set before those libraries initialize.
+    """
+    os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
+    os.environ.setdefault("GRPC_TRACE", "")
+    os.environ.setdefault("GLOG_minloglevel", "2")
+    os.environ.setdefault("ABSL_MIN_LOG_LEVEL", "2")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _quiet_native_runtime_logs()
     parser = argparse.ArgumentParser(
         prog="scripture-fidelity",
         description="Study of methods for LLMs to quote Scripture with high fidelity",
@@ -157,12 +171,6 @@ def _apply_overrides(config, args):
             None if t.casefold() in {"default", "none", "null"} else float(t)
             for t in _csv(args.temperatures)
         ]
-    if any(
-        not model.supports_temperature for model in config.models
-    ) and config.temperatures != [None]:
-        raise ConfigError(
-            "models with supports_temperature=false require --temperatures default"
-        )
     if args.set_sizes is not None:
         sizes = [int(s) for s in _csv(args.set_sizes)]
         if any(s < 1 for s in sizes):
@@ -206,17 +214,40 @@ def _print_grid(config, iterations: int, retries: int) -> None:
 
     permutations = config.permutation_count()
     trials = permutations * iterations
-    tasks = (
+    omit_models = config.temperature_omit_models()
+    # Task files are still one per temperature in TEMPERATURES; models that
+    # omit temperature run in a separate null-temperature batch.
+    capable_task_temps = len(config.temperatures)
+    omit_task_temps = 1 if omit_models else 0
+    capable_tasks = (
         len(config.methods)
         * len(pairs)
-        * len(config.temperatures)
+        * capable_task_temps
         * len(config.set_sizes)
         * len(config.prompt_families)
     )
+    omit_tasks = (
+        (
+            len(config.methods)
+            * len(pairs)
+            * omit_task_temps
+            * len(config.set_sizes)
+            * len(config.prompt_families)
+        )
+        if omit_models
+        else 0
+    )
     console.print(
         f"Protocol role: [bold]{config.protocol_role}[/bold] | "
-        f"Inspect tasks: [bold]{tasks}[/bold] "
-        f"(x {len(config.models)} models) | "
+        f"Inspect tasks: [bold]{capable_tasks + omit_tasks}[/bold] "
+        f"({len(config.temperature_capable_models())} models × "
+        f"{capable_task_temps} temps"
+        + (
+            f"; {len(omit_models)} models omit temperature"
+            if omit_models
+            else ""
+        )
+        + ") | "
         f"permutations: [bold]{permutations}[/bold] | "
         f"trials (x{iterations} iterations): [bold]{trials}[/bold]"
     )
@@ -235,6 +266,11 @@ def _print_grid(config, iterations: int, retries: int) -> None:
         f"(up to {accounting['max_http_retries_per_attempt']} "
         f"transport retries per turn)"
     )
+    if omit_models:
+        console.print(
+            "Temperature omitted for: "
+            + ", ".join(m.inspect_model for m in omit_models)
+        )
 
 
 def _emit_reports(log_dir: Path) -> int:
@@ -280,7 +316,10 @@ def _cmd_run(args) -> int:
         run_dependency_checks,
     )
 
-    console.print("Running dependency checks…")
+    console.print(
+        "Running dependency checks (live probes: first reference, "
+        "highest temperature for models that support it)…"
+    )
     check_failures = print_dependency_report(run_dependency_checks(config), console)
 
     if args.dry_run:
@@ -291,7 +330,7 @@ def _cmd_run(args) -> int:
             )
             return 2
         console.print(
-            "[yellow]Dry run: dependency checks passed; "
+            "[yellow]Dry run: live dependency probes finished; "
             "study was not executed.[/yellow]"
         )
         return 0

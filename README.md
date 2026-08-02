@@ -49,8 +49,8 @@ cp .env.example .env
 | `PROMPT_FAMILIES` | Caller-request formulations. `explicit_reference` and `contextual_description` hold user wording constant across methods; `method_specific` preserves the original method-aware prompts. |
 | `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and usually `api_bible_id` (the provider-specific identifier; omit or leave empty for single-translation APIs such as `esv`). Optional `aliases` are recognized edition labels that a model may append to a selected reference; they are matched only for that requested translation. Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
 | `LANGUAGES` | Available prompt languages. In `matched` mode only declared `LANGUAGE_PAIRS` run; a full cross-product requires an explicitly exploratory `crossed` configuration. |
-| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), `openrouter` (model ids are `vendor/model`, e.g. `anthropic/claude-sonnet-4`), and `mockllm` (for testing without API calls). Confirmatory OpenRouter routes must use `provider_routing` to pin one upstream provider, disable fallbacks, require requested parameters, and deny data-collecting routes. |
-| `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. Use `[null]` to omit temperature and use the provider default. |
+| `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject or warn on the parameter; those models run only at the provider default while other models still sweep `TEMPERATURES`. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), `openrouter` (model ids are `vendor/model`, e.g. `anthropic/claude-sonnet-4`), and `mockllm` (for testing without API calls). Confirmatory OpenRouter routes must use `provider_routing` to pin one upstream provider, disable fallbacks, require requested parameters, and deny data-collecting routes. |
+| `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. Use `[null]` to omit temperature and use the provider default for every model. |
 | `REFERENCE_SET_SIZES` | Optional (default `[1]`). Reference set sizes, e.g. `[1, 3]`. For each size > 1 the references list is chunked (in order) into sets of that size, and each set becomes a single prompt asking for all of its passages at once — probing whether models handle every requested reference (e.g. calling `get_passage` once per reference). Size 1 reproduces standard single-reference samples. |
 
 The run grid combines reference sets, methods, prompt families, declared language-translation pairs, models, and temperatures. A full languages × translations cross-product runs only in explicitly exploratory `crossed` mode.
@@ -110,11 +110,16 @@ Always start with a dry run to see the grid size and estimated call count before
 scripture-fidelity run --dry-run
 ```
 
-The dry run (and the start of every real CLI run) probes external dependencies:
-each configured model, each configured Bible translation, and — when
-`web_search` is among `METHODS` — the Parallel.ai search provider. Failures are
-collected into one table; a real run aborts if any check failed. The research
-API path does not run these checks.
+The dry run (and the start of every real CLI run) runs **live** dependency
+probes shaped like the study grid: each model is called with the first
+configured reference and the highest numeric temperature (omitted when the
+model has `supports_temperature: false`); each Bible translation fetches that
+first reference; and — when `web_search` is among `METHODS` — Parallel.ai is
+queried with the first reference and first translation. Soft provider warnings
+(e.g. temperature not supported) appear as `WARN` in the table; hard failures
+are `FAIL`. A real run aborts only on failures. Use `WARN` rows to mark models
+with `"supports_temperature": false`, then re-run `--dry-run`. The research API
+path does not run these checks.
 
 The dry run also reports both a semantic model-turn ceiling and a provider-attempt
 ceiling. Tool-mediated methods permit one tool-call turn followed by one final
