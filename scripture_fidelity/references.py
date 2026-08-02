@@ -201,6 +201,48 @@ def parse_reference(text: str) -> Reference:
     )
 
 
+def parse_reference_with_annotation(text: str) -> tuple[Reference, str]:
+    """Parse a reference while tolerating one trailing textual annotation.
+
+    Models sometimes echo a requested edition after an otherwise valid
+    reference, for example ``John 3:16 LSV``. The edition is not part of the
+    reference and the caller has already fixed the translation, so treating
+    that suffix as a reference error obscures the model's selection behavior.
+
+    The fallback remains conservative: the suffix must contain a letter and
+    cannot contain a colon, semicolon, or another chapter-and-verse pattern.
+    This keeps ranges and multiple references out of the recovery path.
+    """
+
+    value = str(text or "").strip()
+    strict_error: ReferenceError
+    try:
+        return parse_reference(value), ""
+    except ReferenceError as error:
+        strict_error = error
+
+    boundaries = [
+        index
+        for index in range(1, len(value))
+        if value[index] in {" ", ",", "("}
+    ]
+    for index in reversed(boundaries):
+        candidate = value[:index].rstrip(" ,(")
+        annotation = value[index:].strip(" ,()")
+        if not annotation or not re.search(r"[A-Za-z]", annotation):
+            continue
+        if ":" in annotation or ";" in annotation:
+            continue
+        if re.search(r"\b\d+\s*[-\u2013\u2014:]\s*\d+\b", annotation):
+            continue
+        try:
+            return parse_reference(candidate), annotation
+        except ReferenceError:
+            continue
+
+    raise strict_error
+
+
 def infer_type(ref: Reference) -> str:
     """Fallback grouping label when the config does not supply one."""
     if ref.is_chapter:

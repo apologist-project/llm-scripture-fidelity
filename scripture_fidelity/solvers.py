@@ -19,7 +19,11 @@ from inspect_ai.tool import Tool, tool
 from scripture_fidelity.bible.service import PassageService
 from scripture_fidelity.config import TranslationConfig
 from scripture_fidelity.prompts import system_prompt
-from scripture_fidelity.references import ReferenceError, parse_reference
+from scripture_fidelity.references import (
+    ReferenceError,
+    parse_reference,
+    parse_reference_with_annotation,
+)
 
 PLACEHOLDER_RE = re.compile(r"\{\{\s*QUOTE\s*:\s*([^{}]+?)\s*\}\}")
 MAX_MODEL_TURNS_PER_SAMPLE = 2
@@ -146,9 +150,10 @@ async def apply_buffer_transform_selection(
     selected_raw = matches[0].group(1) if matches else ""
 
     parsed = None
+    _annotation = ""
     if selected_raw:
         try:
-            parsed = parse_reference(selected_raw)
+            parsed, _annotation = parse_reference_with_annotation(selected_raw)
         except ReferenceError:
             parsed = None
 
@@ -178,6 +183,7 @@ async def apply_buffer_transform_selection(
     result = {
         "selected_reference_raw": selected_raw,
         "selected_reference_parsed": parsed.usfm() if parsed else "",
+        "selected_reference_annotation": _annotation if parsed else "",
         "placeholder_count": len(matches),
         "placeholder_ok": len(matches) == 1 and parsed is not None,
         "selection_correct": selection_correct,

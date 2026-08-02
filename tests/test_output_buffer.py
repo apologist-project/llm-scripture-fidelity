@@ -7,7 +7,11 @@ from types import SimpleNamespace
 import pytest
 
 from scripture_fidelity.config import TranslationConfig
-from scripture_fidelity.references import parse_reference
+from scripture_fidelity.references import (
+    ReferenceError,
+    parse_reference,
+    parse_reference_with_annotation,
+)
 from scripture_fidelity.solvers import (
     apply_buffer_transform,
     apply_buffer_transform_multi,
@@ -108,6 +112,47 @@ TRANSLATION = TranslationConfig(
 )
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected", "annotation"),
+    [
+        ("John 3:16 LSV", "John 3:16", "LSV"),
+        ("Matthew 22:37-40 LSV", "Matthew 22:37-40", "LSV"),
+        (
+            "John 3:16, World English Bible, Updated",
+            "John 3:16",
+            "World English Bible, Updated",
+        ),
+        ("John 3:16 (WEB Updated)", "John 3:16", "WEB Updated"),
+        ("Psalm 23 BSB", "Psalm 23", "BSB"),
+    ],
+)
+def test_reference_parser_accepts_trailing_edition_annotation(
+    payload, expected, annotation
+):
+    parsed, observed_annotation = parse_reference_with_annotation(payload)
+
+    assert parsed == parse_reference(expected)
+    assert observed_annotation == annotation
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "John 3:16-18",
+        "John 3:16; Romans 8:28",
+        "John 3:16 Romans 8:28",
+    ],
+)
+def test_reference_parser_does_not_recover_ranges_or_multiple_references(payload):
+    if payload == "John 3:16-18":
+        parsed, annotation = parse_reference_with_annotation(payload)
+        assert parsed == parse_reference(payload)
+        assert annotation == ""
+        return
+    with pytest.raises(ReferenceError):
+        parse_reference_with_annotation(payload)
+
+
 def test_literal_system_template_preserves_double_brace_grammar_after_format():
     prompt = "Return <quote>{{QUOTE:<reference>}}</quote>."
 
@@ -193,6 +238,18 @@ def test_selection_correct_and_replaced():
     assert r["lookup_ok"] is True
     assert r["replacement_ok"] is True
     assert r["lookup_fixture_id"] == f"{TRANSLATION.source_key}:JHN.3.16"
+
+
+def test_selection_edition_annotation_is_replaced_and_recorded():
+    text, result = run_selection("<quote>{{QUOTE:John 3:16 BSB}}</quote>")
+
+    assert text == f"<quote>{TRUTH}</quote>"
+    assert result["selected_reference_parsed"] == "JHN.3.16"
+    assert result["selected_reference_annotation"] == "BSB"
+    assert result["placeholder_ok"] is True
+    assert result["selection_correct"] is True
+    assert result["lookup_ok"] is True
+    assert result["replacement_ok"] is True
 
 
 def test_wrong_selection_gets_wrong_passage_not_expected_text():
