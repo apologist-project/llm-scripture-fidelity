@@ -51,6 +51,7 @@ class TranslationModel(StrictModel):
     rights: str = "unknown"
     verification: str = ""
     edition: str = ""
+    aliases: list[str] = Field(default_factory=list)
     license_basis: str = ""
     public_release: bool = False
 

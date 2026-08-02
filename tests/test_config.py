@@ -267,6 +267,37 @@ def test_non_esv_translation_requires_api_bible_id(monkeypatch):
         load_config()
 
 
+def test_translation_aliases_are_loaded(monkeypatch):
+    set_env(
+        monkeypatch,
+        TRANSLATIONS=(
+            '[{"id": "WEBU", "name": "World English Bible Updated",'
+            ' "aliases": ["WEB", "和合本"], "language": "eng",'
+            ' "api": "ao_lab", "api_bible_id": "eng_webu"}]'
+        ),
+        LANGUAGE_PAIRS='[["eng", "WEBU"]]',
+    )
+
+    config = load_config()
+
+    assert config.translations[0].aliases == ("WEB", "和合本")
+
+
+@pytest.mark.parametrize("aliases", ['"WEB"', '["WEB", ""]', "[1]"])
+def test_translation_aliases_must_be_non_empty_strings(monkeypatch, aliases):
+    set_env(
+        monkeypatch,
+        TRANSLATIONS=(
+            '[{"id": "WEBU", "language": "eng", "api": "ao_lab",'
+            f' "api_bible_id": "eng_webu", "aliases": {aliases}}}]'
+        ),
+        LANGUAGE_PAIRS='[["eng", "WEBU"]]',
+    )
+
+    with pytest.raises(ConfigError, match="aliases"):
+        load_config()
+
+
 def test_bad_reference(monkeypatch):
     set_env(monkeypatch, REFERENCES='["Hezekiah 3:16"]')
     with pytest.raises(Exception, match="Hezekiah"):

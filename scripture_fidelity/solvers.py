@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from itertools import chain
 
 from inspect_ai.solver import (
     Generate,
@@ -19,10 +20,22 @@ from inspect_ai.tool import Tool, tool
 from scripture_fidelity.bible.service import PassageService
 from scripture_fidelity.config import TranslationConfig
 from scripture_fidelity.prompts import system_prompt
-from scripture_fidelity.references import ReferenceError, parse_reference
+from scripture_fidelity.references import (
+    ReferenceError,
+    parse_reference,
+    parse_reference_with_annotation,
+)
 
 PLACEHOLDER_RE = re.compile(r"\{\{\s*QUOTE\s*:\s*([^{}]+?)\s*\}\}")
 MAX_MODEL_TURNS_PER_SAMPLE = 2
+
+
+def _translation_annotation_aliases(translation: TranslationConfig) -> set[str]:
+    """Configured labels that may follow a selected Scripture reference."""
+    names = [translation.id, translation.name, translation.edition]
+    words = re.findall(r"[^\W\d_]+", translation.name, flags=re.UNICODE)
+    acronym = "".join(word[0] for word in words)
+    return {alias for alias in chain(names, translation.aliases, [acronym]) if alias}
 
 
 def literal_system_template(value: str) -> str:
@@ -146,9 +159,15 @@ async def apply_buffer_transform_selection(
     selected_raw = matches[0].group(1) if matches else ""
 
     parsed = None
+    annotation = ""
+    annotation_recovered = False
     if selected_raw:
         try:
-            parsed = parse_reference(selected_raw)
+            parsed, annotation = parse_reference_with_annotation(
+                selected_raw,
+                _translation_annotation_aliases(translation),
+            )
+            annotation_recovered = bool(annotation)
         except ReferenceError:
             parsed = None
 
@@ -178,6 +197,8 @@ async def apply_buffer_transform_selection(
     result = {
         "selected_reference_raw": selected_raw,
         "selected_reference_parsed": parsed.usfm() if parsed else "",
+        "selected_reference_annotation": annotation if parsed else "",
+        "selected_reference_annotation_recovered": annotation_recovered,
         "placeholder_count": len(matches),
         "placeholder_ok": len(matches) == 1 and parsed is not None,
         "selection_correct": selection_correct,
