@@ -119,8 +119,13 @@ API path does not run these checks.
 The dry run also reports both a semantic model-turn ceiling and a provider-attempt
 ceiling. Tool-mediated methods permit one tool-call turn followed by one final
 response; all other methods use one model turn. The provider-attempt ceiling
-also includes bounded transport retries and is therefore a conservative
+also includes any `--retries` transport budget and is therefore a conservative
 operational limit, not a count of independent experimental observations.
+
+By default each model API call may retry up to 5 times on rate limits and other
+transient provider/HTTP errors (`--retries N` to change; `0` disables). A
+completed sample is never re-run just because the quote scored poorly;
+sample-level replacement retries remain off.
 
 Then run the full study (or a subset):
 
@@ -154,6 +159,7 @@ scripture-fidelity run \
 | `--display full\|conversation\|rich\|plain\|log\|none` | `rich` | Inspect progress display. |
 | `--cache-dir DIR` | `.cache/passages` | Passage cache location. |
 | `--dry-run` | | Print the grid, run dependency checks, and exit without executing the study. |
+| `--retries N` | `5` | Retry each model API call up to N times on rate limits / transient HTTP errors (`0` disables). |
 | `--methods`, `--models`, `--translations`, `--languages`, `--references` | | Comma-separated subsets of the configured lists. |
 | `--temperatures` | | Comma-separated values that *replace* the configured list. |
 | `--set-sizes` | | Comma-separated reference set sizes that *replace* `REFERENCE_SET_SIZES` (e.g. `1,3`). |

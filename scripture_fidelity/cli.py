@@ -67,6 +67,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Authorize a run whose planned call volume exceeds the threshold",
     )
+    run.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        metavar="N",
+        help=(
+            "Retry each model API call up to N times on rate limits and other "
+            "transient provider/HTTP errors (default 5; use 0 to disable)"
+        ),
+    )
     for flag, help_text in [
         ("--methods", "Comma-separated subset of METHODS"),
         ("--models", "Comma-separated subset of MODELS (provider/model)"),
@@ -161,7 +171,7 @@ def _apply_overrides(config, args):
     return config
 
 
-def _print_grid(config, iterations: int) -> None:
+def _print_grid(config, iterations: int, retries: int) -> None:
     from rich.table import Table
 
     from scripture_fidelity.runner import call_accounting
@@ -211,7 +221,7 @@ def _print_grid(config, iterations: int) -> None:
         f"trials (x{iterations} iterations): [bold]{trials}[/bold]"
     )
 
-    accounting = call_accounting(config, iterations)
+    accounting = call_accounting(config, iterations, max_retries=retries)
     console.print(
         f"Planned requests: [bold]{accounting['planned_requests']}[/bold] "
         f"({accounting['samples_per_epoch']} samples x "
@@ -222,7 +232,8 @@ def _print_grid(config, iterations: int) -> None:
         f"[bold]{accounting['planned_model_turn_ceiling']}[/bold] | "
         f"provider-attempt ceiling: "
         f"[bold]{accounting['max_provider_api_attempts']}[/bold] "
-        f"(up to {accounting['max_http_retries_per_attempt']} retries per turn)"
+        f"(up to {accounting['max_http_retries_per_attempt']} "
+        f"transport retries per turn)"
     )
 
 
@@ -258,7 +269,11 @@ def _cmd_run(args) -> int:
         console.print(f"[red]Config error:[/red] {e}")
         return 2
 
-    _print_grid(config, args.iterations)
+    if args.retries < 0:
+        console.print("[red]Config error:[/red] --retries must be >= 0")
+        return 2
+
+    _print_grid(config, args.iterations, retries=args.retries)
 
     from scripture_fidelity.preflight import (
         print_dependency_report,
@@ -291,7 +306,9 @@ def _cmd_run(args) -> int:
 
     from scripture_fidelity.runner import CALL_VOLUME_THRESHOLD, call_accounting
 
-    accounting = call_accounting(config, args.iterations)
+    accounting = call_accounting(
+        config, args.iterations, max_retries=args.retries
+    )
     if (
         accounting["max_generation_attempts"] > CALL_VOLUME_THRESHOLD
         and not args.confirm_large_run
@@ -307,6 +324,10 @@ def _cmd_run(args) -> int:
 
     run_dir = Path(args.results_dir) / new_run_id()
     console.print(f"Run directory: [bold]{run_dir}[/bold]")
+    console.print(
+        "Transport retries on rate-limit/transient errors: "
+        f"[bold]{args.retries}[/bold]"
+    )
     log_dir = run_study(
         config,
         run_dir,
@@ -315,6 +336,7 @@ def _cmd_run(args) -> int:
         max_tasks=args.max_tasks,
         display=args.display,
         cache_dir=args.cache_dir,
+        max_retries=args.retries,
     )
     return _emit_reports(log_dir)
 

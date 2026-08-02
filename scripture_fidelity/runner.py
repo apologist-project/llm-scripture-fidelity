@@ -22,28 +22,41 @@ from scripture_fidelity.solvers import MAX_MODEL_TURNS_PER_SAMPLE
 from scripture_fidelity.task import build_task
 
 
-# Failed samples remain failed observations. Provider-level HTTP retries are
-# bounded separately and do not create replacement semantic observations.
+# Failed samples remain failed observations (never re-run as a new semantic
+# trial). Ephemeral HTTP / rate-limit retries are controlled separately via
+# Inspect ``max_retries`` (CLI ``--retries``).
 RETRY_ON_ERROR = 0
-MAX_HTTP_RETRIES = 5
+# Default transport retry budget (rate limits / transient provider errors).
+# Override with CLI ``--retries``.
+DEFAULT_MAX_RETRIES = 5
 
-# Generation/sampling controls applied to every eval. Only temperature is
-# varied by the study grid; everything else is left at the provider default
-# and recorded as such so provenance is explicit (AP-08).
-GENERATION_CONTROLS = {
-    "temperature": "per-variant (see TEMPERATURES)",
-    "top_p": "provider default",
-    "top_k": "provider default",
-    "max_tokens": "provider default",
-    "reasoning_effort": "provider default",
-    "reasoning_tokens": "provider default",
-    "attempt_timeout": 300,
-    "timeout": 1800,
-    "max_retries": MAX_HTTP_RETRIES,
-    "retry_on_error": RETRY_ON_ERROR,
-    "max_model_turns_per_sample": MAX_MODEL_TURNS_PER_SAMPLE,
-    "tool_rounds": 1,
-}
+
+def generation_controls(max_retries: int = DEFAULT_MAX_RETRIES) -> dict:
+    """Generation/sampling controls applied to an eval.
+
+    Only temperature is varied by the study grid; everything else is left at
+    the provider default and recorded as such so provenance is explicit
+    (AP-08). ``max_retries`` is the per-turn HTTP/transport retry budget.
+    """
+    return {
+        "temperature": "per-variant (see TEMPERATURES)",
+        "top_p": "provider default",
+        "top_k": "provider default",
+        "max_tokens": "provider default",
+        "reasoning_effort": "provider default",
+        "reasoning_tokens": "provider default",
+        "attempt_timeout": 300,
+        "timeout": 1800,
+        "max_retries": max_retries,
+        "retry_on_error": RETRY_ON_ERROR,
+        "max_model_turns_per_sample": MAX_MODEL_TURNS_PER_SAMPLE,
+        "tool_rounds": 1,
+    }
+
+
+# Default controls (no transport retries); prefer :func:`generation_controls`
+# when a run-specific retry budget is in effect.
+GENERATION_CONTROLS = generation_controls()
 
 # Planned generation attempts above this require explicit authorization
 # (--confirm-large-run) before any provider call is made.
@@ -54,9 +67,20 @@ def new_run_id() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def call_accounting(config: StudyConfig, epochs: int) -> dict[str, int]:
+def call_accounting(
+    config: StudyConfig,
+    epochs: int,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> dict[str, int]:
     """Planned call volumes for a run: expected requests, per-reference
-    observations, epochs, and retry upper bounds."""
+    observations, epochs, and retry upper bounds.
+
+    ``max_retries`` is the per-turn HTTP/transport retry budget (Inspect
+    ``max_retries``), covering rate limits and other transient provider
+    errors. Sample-level ``retry_on_error`` stays at zero.
+    """
+    if max_retries < 0:
+        raise ConfigError("max_retries must be a non-negative integer")
     samples_per_epoch = config.permutation_count()
     planned_requests = samples_per_epoch * epochs
     observations_per_reference = (
@@ -80,7 +104,7 @@ def call_accounting(config: StudyConfig, epochs: int) -> dict[str, int]:
         MAX_MODEL_TURNS_PER_SAMPLE if method in {"tool_call", "web_search"} else 1
         for method in config.methods
     )
-    max_provider_api_attempts = planned_model_turn_ceiling * (1 + MAX_HTTP_RETRIES)
+    max_provider_api_attempts = planned_model_turn_ceiling * (1 + max_retries)
     return {
         "language_pairs": len(config.variant_pairs()),
         "samples_per_epoch": samples_per_epoch,
@@ -88,7 +112,7 @@ def call_accounting(config: StudyConfig, epochs: int) -> dict[str, int]:
         "planned_requests": planned_requests,
         "observations_per_reference": observations_per_reference,
         "retry_on_error": RETRY_ON_ERROR,
-        "max_http_retries_per_attempt": MAX_HTTP_RETRIES,
+        "max_http_retries_per_attempt": max_retries,
         "planned_model_turn_ceiling": planned_model_turn_ceiling,
         "max_provider_api_attempts": max_provider_api_attempts,
         "max_generation_attempts": max_provider_api_attempts,
@@ -224,6 +248,7 @@ def _run_eval(
     max_connections: int,
     max_tasks: int,
     display: str,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> None:
     """Execute the Inspect eval for the grid, writing logs to ``log_dir``.
 
@@ -232,6 +257,9 @@ def _run_eval(
     """
     from inspect_ai import eval as inspect_eval
     from inspect_ai.model import get_model
+
+    if max_retries < 0:
+        raise ConfigError("max_retries must be a non-negative integer")
 
     tasks = build_tasks(config, passages, service)
     # Build model objects rather than passing bare strings so provider-specific
@@ -247,18 +275,18 @@ def _run_eval(
         max_connections=max_connections,
         max_tasks=max_tasks,
         display=display,
-        # Preserve failed samples as missing/error observations rather than
-        # replacing them with a later semantic generation.
+        # Never re-run a sample as a replacement observation after it errors.
         retry_on_error=RETRY_ON_ERROR,
         fail_on_error=False,
-        # Without these, Inspect retries transient HTTP errors *forever*
-        # (backing off up to 30 min between attempts) and a hung connection
-        # never times out — either can stall the run indefinitely on its
-        # last task. Bound each attempt and the retry budget so a stuck
-        # request becomes a sample error handled by retry_on_error above.
+        # Without an explicit bound, Inspect retries transient HTTP errors
+        # *forever* (backing off up to 30 min between attempts) and a hung
+        # connection never times out. ``max_retries`` covers rate limits and
+        # other transient provider errors for each model-turn attempt;
+        # attempt/timeout bounds still apply so a stuck request becomes a
+        # sample error rather than stalling the run.
         attempt_timeout=300,
         timeout=1800,
-        max_retries=MAX_HTTP_RETRIES,
+        max_retries=max_retries,
     )
 
 
@@ -270,6 +298,7 @@ def run_study(
     max_tasks: int = 4,
     display: str = "rich",
     cache_dir: str | Path | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Path:
     """Execute the full study grid; returns the Inspect log directory.
 
@@ -282,8 +311,10 @@ def run_study(
 
     run_dir.mkdir(parents=True, exist_ok=True)
     run_record = config.to_dict()
-    run_record["call_accounting"] = call_accounting(config, epochs)
-    run_record["generation_controls"] = GENERATION_CONTROLS
+    run_record["call_accounting"] = call_accounting(
+        config, epochs, max_retries=max_retries
+    )
+    run_record["generation_controls"] = generation_controls(max_retries)
     (run_dir / "config.json").write_text(
         json.dumps(run_record, indent=2, ensure_ascii=False), encoding="utf-8"
     )
@@ -298,6 +329,7 @@ def run_study(
         max_connections,
         max_tasks,
         display,
+        max_retries=max_retries,
     )
 
     from scripture_fidelity.export import export_package
@@ -312,6 +344,7 @@ def run_study(
         run_id=run_dir.name,
         started_at=started_at,
         ended_at=ended_at,
+        max_retries=max_retries,
     )
     return log_dir
 
@@ -366,6 +399,7 @@ def run_study_in_memory(
     max_connections: int = 10,
     max_tasks: int = 4,
     cache_dir: str | Path | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> dict:
     """Execute the grid and return the full result package as plain data.
 
@@ -402,6 +436,7 @@ def run_study_in_memory(
             max_connections,
             max_tasks,
             display="none",
+            max_retries=max_retries,
         )
         trial_rows = build_trial_rows(log_dir)
         ended_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -415,6 +450,7 @@ def run_study_in_memory(
         run_id,
         started_at=started_at,
         ended_at=ended_at,
+        max_retries=max_retries,
     )
     return {
         "run_id": run_id,

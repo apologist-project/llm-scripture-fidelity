@@ -316,10 +316,17 @@ def build_run_manifest(
     run_id: str = "",
     started_at: str | None = None,
     ended_at: str | None = None,
+    max_retries: int | None = None,
 ) -> dict:
-    from scripture_fidelity.runner import GENERATION_CONTROLS, call_accounting
+    from scripture_fidelity.runner import (
+        DEFAULT_MAX_RETRIES,
+        call_accounting,
+        generation_controls,
+    )
     from scripture_fidelity.provenance import build_identity, execution_environment
 
+    if max_retries is None:
+        max_retries = DEFAULT_MAX_RETRIES
     completed = sum(1 for r in trial_rows if not r["error"])
     errored = sum(1 for r in trial_rows if r["error"])
     expected = config.permutation_count() * epochs
@@ -371,8 +378,8 @@ def build_run_manifest(
         "protocol_role": config.protocol_role,
         "language_pairing_mode": config.language_pairing_mode,
         "config": config.to_dict(),
-        "call_accounting": call_accounting(config, epochs),
-        "generation_controls": GENERATION_CONTROLS,
+        "call_accounting": call_accounting(config, epochs, max_retries=max_retries),
+        "generation_controls": generation_controls(max_retries),
         "requested_models": [m.inspect_model for m in config.models],
         "resolved_models": resolved_models,
         "model_alias_map": alias_map,
@@ -410,6 +417,7 @@ def export_package(
     run_id: str = "",
     started_at: str | None = None,
     ended_at: str | None = None,
+    max_retries: int | None = None,
 ) -> Path:
     """Write the full auditable result package to ``out_dir``."""
     out_dir = Path(out_dir)
@@ -423,6 +431,7 @@ def export_package(
         run_id,
         started_at=started_at,
         ended_at=ended_at,
+        max_retries=max_retries,
     )
     fixtures = build_source_fixtures(config, passages)
 

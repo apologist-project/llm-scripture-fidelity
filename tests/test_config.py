@@ -603,12 +603,25 @@ def test_call_accounting(monkeypatch):
     # 2 methods x 1 pair x 1 model x 2 temps x 1 set size x 3 epochs
     assert accounting["observations_per_reference"] == 12
     assert accounting["planned_model_turn_ceiling"] == 24
-    assert accounting["max_provider_api_attempts"] == 24 * (
-        1 + accounting["max_http_retries_per_attempt"]
-    )
+    assert accounting["retry_on_error"] == 0
+    assert accounting["max_http_retries_per_attempt"] == 5
+    assert accounting["max_provider_api_attempts"] == 24 * 6
     assert (
         accounting["max_generation_attempts"] == accounting["max_provider_api_attempts"]
     )
+
+
+def test_call_accounting_respects_transport_retry_override(monkeypatch):
+    from scripture_fidelity.runner import call_accounting, generation_controls
+
+    set_env(monkeypatch)
+    accounting = call_accounting(load_config(), epochs=3, max_retries=0)
+    assert accounting["retry_on_error"] == 0
+    assert accounting["max_http_retries_per_attempt"] == 0
+    assert accounting["max_provider_api_attempts"] == 24
+    assert generation_controls(0)["max_retries"] == 0
+    assert generation_controls(0)["retry_on_error"] == 0
+    assert generation_controls()["max_retries"] == 5
 
 
 def test_call_accounting_includes_bounded_tool_followup(monkeypatch):

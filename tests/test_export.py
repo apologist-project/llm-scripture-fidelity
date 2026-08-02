@@ -137,7 +137,13 @@ def test_manifest_counts_reconcile():
             error="timeout",
         ),
     ]
-    manifest = build_run_manifest(config, rows, epochs=2, run_id="run1")
+    manifest = build_run_manifest(
+        config, rows, epochs=2, run_id="run1", max_retries=3
+    )
+    assert manifest["generation_controls"]["max_retries"] == 3
+    assert manifest["generation_controls"]["retry_on_error"] == 0
+    assert manifest["call_accounting"]["max_http_retries_per_attempt"] == 3
+    assert manifest["call_accounting"]["retry_on_error"] == 0
     counts = manifest["counts"]
     assert counts["expected_samples"] == 2  # 1 sample/epoch x 2 epochs
     assert counts["observed_requests"] == 2
