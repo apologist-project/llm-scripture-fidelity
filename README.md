@@ -47,7 +47,7 @@ cp .env.example .env
 | `REFERENCES` | Scripture references to test. Each entry is a string (`"John 3:16"`) or an object with a grouping label: `{"ref": "Psalm 117", "type": "chapter"}`. Supports single verses, ranges (`Romans 8:38-39`), cross-chapter ranges (`Luke 9:57-10:2`), and whole chapters. When `type` is omitted it is inferred (`single`/`range`/`chapter`). |
 | `METHODS` | Any subset of `unassisted`, `rag`, `tool_call`, `buffer_transform`, `buffer_transform_selection`, `web_search`. |
 | `PROMPT_FAMILIES` | Caller-request formulations. `explicit_reference` and `contextual_description` hold user wording constant across methods; `method_specific` preserves the original method-aware prompts. |
-| `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and usually `api_bible_id` (the provider-specific identifier; omit or leave empty for single-translation APIs such as `esv`). Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
+| `TRANSLATIONS` | Bible translations. Each entry needs `id` (study-level label), `language` (ISO 639-3 of the text), `api` (which provider to use), and usually `api_bible_id` (the provider-specific identifier; omit or leave empty for single-translation APIs such as `esv`). Optional `aliases` are recognized edition labels that a model may append to a selected reference; they are matched only for that requested translation. Research runs should also declare `rights`, `verification`, `edition`, `license_basis`, and `public_release`; complete source provenance is mandatory for `confirmatory` runs. |
 | `LANGUAGES` | Available prompt languages. In `matched` mode only declared `LANGUAGE_PAIRS` run; a full cross-product requires an explicitly exploratory `crossed` configuration. |
 | `MODELS` | Models as `{"provider": ..., "model": ...}`. Set `"supports_temperature": false` for endpoints that reject the parameter. Providers map to Inspect prefixes: `openai`, `anthropic`, `google`, `together`, `xai` (mapped to Inspect's `grok` provider), `openrouter` (model ids are `vendor/model`, e.g. `anthropic/claude-sonnet-4`), and `mockllm` (for testing without API calls). Confirmatory OpenRouter routes must use `provider_routing` to pin one upstream provider, disable fallbacks, require requested parameters, and deny data-collecting routes. |
 | `TEMPERATURES` | Sampling temperatures, e.g. `[0.0, 0.7]`. Use `[null]` to omit temperature and use the provider default. |
@@ -223,6 +223,12 @@ All metrics are deterministic string comparisons (no LLM judge). The quoted pass
 | `tool_used` | For `tool_call`, the fraction of requested references actually retrieved via `get_passage`; a wrong-reference call scores zero coverage. For `web_search`, whether the assigned search tool was invoked. |
 
 Observed text fidelity is never overwritten when a method instruction is disobeyed. `method_adherence` records tool/placeholder compliance, while `end_to_end_exact` is the conjunction of final-output exactness and applicable selection, lookup, replacement, and adherence components. This preserves the difference between quoting accurately from memory and successfully executing a tool-mediated condition.
+
+For `buffer_transform_selection`, a configured translation alias may follow an
+otherwise valid selected reference. The parser records the exact suffix in
+`selected_reference_annotation` and sets
+`selected_reference_annotation_recovered`; arbitrary suffixes, prose ranges,
+additional references, and labels for another translation remain malformed.
 
 ### Multi-reference samples
 

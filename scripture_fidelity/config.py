@@ -69,6 +69,7 @@ class TranslationConfig:
     rights: str = "unknown"
     verification: str = ""
     edition: str = ""
+    aliases: tuple[str, ...] = ()
     license_basis: str = ""
     public_release: bool = False
 
@@ -324,6 +325,13 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
             raise ConfigError(
                 f"Unknown rights status {rights!r} (expected one of {VALID_RIGHTS})"
             )
+        aliases = item.get("aliases", [])
+        if not isinstance(aliases, list) or any(
+            not isinstance(alias, str) or not alias.strip() for alias in aliases
+        ):
+            raise ConfigError(
+                f"TRANSLATIONS aliases must be a list of non-empty strings: {aliases!r}"
+            )
         translations.append(
             TranslationConfig(
                 id=item["id"],
@@ -334,6 +342,7 @@ def load_config(env_file: str | Path | None = None) -> StudyConfig:
                 rights=rights,
                 verification=item.get("verification", ""),
                 edition=item.get("edition", ""),
+                aliases=tuple(alias.strip() for alias in aliases),
                 license_basis=item.get("license_basis", ""),
                 public_release=bool(item.get("public_release", False)),
             )

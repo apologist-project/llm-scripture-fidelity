@@ -242,6 +242,10 @@ def _sample_trial_rows(log, sample, requested_model: str) -> list[dict]:
         "failure_tags": score_md.get("failure_tags", []),
         "selected_reference_raw": score_md.get("selected_reference_raw"),
         "selected_reference_parsed": score_md.get("selected_reference_parsed"),
+        "selected_reference_annotation": score_md.get("selected_reference_annotation"),
+        "selected_reference_annotation_recovered": bool(
+            score_md.get("selected_reference_annotation_recovered", False)
+        ),
         "lookup_fixture_id": score_md.get("lookup_fixture_id"),
         "tool_calls": score_md.get("tool_calls", []),
         "tool_lookup_fixture_ids": score_md.get("tool_lookup_fixture_ids", []),

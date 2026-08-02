@@ -63,6 +63,13 @@
     "TranslationModel": {
       "additionalProperties": false,
       "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
         "api": {
           "title": "Api",
           "type": "string"

@@ -79,6 +79,10 @@ non-English runs use the repository's reviewed localized prompt templates.
   `source_supplied_quote` request. When combined with `prompt`, the caller's
   exact user request is preserved and the document is added through the pinned
   harness context wrapper.
+- `translation.aliases`: optional recognized labels for the requested edition.
+  The deterministic selection transform may remove one such label after a
+  valid reference, but rejects arbitrary suffixes and aliases belonging to a
+  different translation.
 
 The export records the caller-prompt hash, effective user-input hash, and
 whether the prompt was caller-supplied. Source-supplied runs additionally
@@ -90,6 +94,12 @@ prompt registry; generated prompts are recoverable from the pinned template
 version and inputs. Raw and final outputs are returned to the caller with
 hashes. Restricted-source fixtures are hash/metadata-only and never include
 source text in the exported package.
+
+Selection-condition trial rows retain the raw and canonical selected reference.
+When a configured edition label is removed, they also retain
+`selected_reference_annotation` and
+`selected_reference_annotation_recovered` so callers can audit recovery without
+re-parsing private model output.
 
 ## Provider-aware generation controls
 

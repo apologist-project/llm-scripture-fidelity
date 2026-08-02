@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 # (usfm, canonical name, aliases). Aliases are matched case-insensitively
@@ -201,17 +203,28 @@ def parse_reference(text: str) -> Reference:
     )
 
 
-def parse_reference_with_annotation(text: str) -> tuple[Reference, str]:
-    """Parse a reference while tolerating one trailing textual annotation.
+def _normalized_annotation(value: str) -> str:
+    """Normalize an edition label for conservative alias comparison."""
+    return "".join(
+        character.casefold()
+        for character in unicodedata.normalize("NFKC", value)
+        if character.isalnum()
+    )
+
+
+def parse_reference_with_annotation(
+    text: str, allowed_annotations: Iterable[str]
+) -> tuple[Reference, str]:
+    """Parse a reference with one recognized trailing edition annotation.
 
     Models sometimes echo a requested edition after an otherwise valid
     reference, for example ``John 3:16 LSV``. The edition is not part of the
     reference and the caller has already fixed the translation, so treating
     that suffix as a reference error obscures the model's selection behavior.
 
-    The fallback remains conservative: the suffix must contain a letter and
-    cannot contain a colon, semicolon, or another chapter-and-verse pattern.
-    This keeps ranges and multiple references out of the recovery path.
+    Only aliases supplied by the caller are accepted. This keeps prose ranges,
+    multiple references, and arbitrary model output out of the recovery path.
+    Alias matching is Unicode-aware and ignores punctuation and whitespace.
     """
 
     value = str(text or "").strip()
@@ -221,6 +234,14 @@ def parse_reference_with_annotation(text: str) -> tuple[Reference, str]:
     except ReferenceError as error:
         strict_error = error
 
+    normalized_aliases = {
+        normalized
+        for alias in allowed_annotations
+        if (normalized := _normalized_annotation(str(alias)))
+    }
+    if not normalized_aliases:
+        raise strict_error
+
     boundaries = [
         index
         for index in range(1, len(value))
@@ -229,11 +250,9 @@ def parse_reference_with_annotation(text: str) -> tuple[Reference, str]:
     for index in reversed(boundaries):
         candidate = value[:index].rstrip(" ,(")
         annotation = value[index:].strip(" ,()")
-        if not annotation or not re.search(r"[A-Za-z]", annotation):
+        if not annotation:
             continue
-        if ":" in annotation or ";" in annotation:
-            continue
-        if re.search(r"\b\d+\s*[-\u2013\u2014:]\s*\d+\b", annotation):
+        if _normalized_annotation(annotation) not in normalized_aliases:
             continue
         try:
             return parse_reference(candidate), annotation

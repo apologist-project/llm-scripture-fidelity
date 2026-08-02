@@ -16,6 +16,7 @@ from scripture_fidelity.export import (
     ExportError,
     _expand_references,
     _model_call_provenance,
+    _sample_trial_rows,
     _structured_error,
     build_run_manifest,
     build_scoring_config,
@@ -272,6 +273,44 @@ def test_model_call_provenance_preserves_provider_identity_and_cost():
         "response_models": ["openai/gpt-5.6-sol"],
         "provider_reported_cost": pytest.approx(0.015),
     }
+
+
+def test_trial_export_preserves_reference_annotation_recovery():
+    score = SimpleNamespace(
+        value={"exact": 1.0},
+        answer="answer",
+        metadata={
+            "raw_output": "{{QUOTE:John 3:16 BSB}}",
+            "final_output": "<quote>truth</quote>",
+            "selected_reference_raw": "John 3:16 BSB",
+            "selected_reference_parsed": "JHN.3.16",
+            "selected_reference_annotation": "BSB",
+            "selected_reference_annotation_recovered": True,
+        },
+    )
+    sample = SimpleNamespace(
+        metadata={
+            "reference": "John 3:16",
+            "fixture_id": "ao_lab:BSB:BSB:JHN.3.16",
+            "method": "buffer_transform_selection",
+            "set_size": 1,
+        },
+        scores={"quotation_fidelity": score},
+        output=SimpleNamespace(model="mockllm/model", usage=None),
+        events=[],
+        error=None,
+        epoch=1,
+        id="sample-1",
+        retries=0,
+        total_time=0.1,
+        working_time=0.1,
+    )
+    log = SimpleNamespace(eval=SimpleNamespace(run_id="run-1", task="task-1"))
+
+    [row] = _sample_trial_rows(log, sample, "mockllm/model")
+
+    assert row["selected_reference_annotation"] == "BSB"
+    assert row["selected_reference_annotation_recovered"] is True
 
 
 def test_multi_reference_rows_share_request_id_and_regroup(tmp_path):

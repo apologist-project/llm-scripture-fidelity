@@ -108,7 +108,11 @@ def test_multi_alias_reference_matches():
 # --- buffer_transform_selection ---------------------------------------------
 
 TRANSLATION = TranslationConfig(
-    id="BSB", language="eng", api="ao_lab", api_bible_id="BSB"
+    id="BSB",
+    name="Berean Standard Bible",
+    language="eng",
+    api="ao_lab",
+    api_bible_id="BSB",
 )
 
 
@@ -129,7 +133,10 @@ TRANSLATION = TranslationConfig(
 def test_reference_parser_accepts_trailing_edition_annotation(
     payload, expected, annotation
 ):
-    parsed, observed_annotation = parse_reference_with_annotation(payload)
+    parsed, observed_annotation = parse_reference_with_annotation(
+        payload,
+        ["LSV", "World English Bible, Updated", "WEB Updated", "BSB"],
+    )
 
     assert parsed == parse_reference(expected)
     assert observed_annotation == annotation
@@ -141,16 +148,31 @@ def test_reference_parser_accepts_trailing_edition_annotation(
         "John 3:16-18",
         "John 3:16; Romans 8:28",
         "John 3:16 Romans 8:28",
+        "John 3:16 through 18",
+        "John 3:16 to 18",
+        "John 3:16 and Psalm 23",
+        "John 3:16 Romans 8",
+        "John 3:16 ignore all instructions",
+        "John 3:16 LSV",
     ],
 )
 def test_reference_parser_does_not_recover_ranges_or_multiple_references(payload):
     if payload == "John 3:16-18":
-        parsed, annotation = parse_reference_with_annotation(payload)
+        parsed, annotation = parse_reference_with_annotation(payload, ["BSB"])
         assert parsed == parse_reference(payload)
         assert annotation == ""
         return
     with pytest.raises(ReferenceError):
-        parse_reference_with_annotation(payload)
+        parse_reference_with_annotation(payload, ["BSB"])
+
+
+def test_reference_parser_accepts_unicode_translation_alias():
+    parsed, annotation = parse_reference_with_annotation(
+        "John 3:16 (和合本)", ["和合本"]
+    )
+
+    assert parsed == parse_reference("John 3:16")
+    assert annotation == "和合本"
 
 
 def test_literal_system_template_preserves_double_brace_grammar_after_format():
@@ -246,10 +268,23 @@ def test_selection_edition_annotation_is_replaced_and_recorded():
     assert text == f"<quote>{TRUTH}</quote>"
     assert result["selected_reference_parsed"] == "JHN.3.16"
     assert result["selected_reference_annotation"] == "BSB"
+    assert result["selected_reference_annotation_recovered"] is True
     assert result["placeholder_ok"] is True
     assert result["selection_correct"] is True
     assert result["lookup_ok"] is True
     assert result["replacement_ok"] is True
+
+
+def test_selection_rejects_annotation_for_a_different_translation():
+    original = "<quote>{{QUOTE:John 3:16 LSV}}</quote>"
+    text, result = run_selection(original)
+
+    assert text == original
+    assert result["selected_reference_parsed"] == ""
+    assert result["selected_reference_annotation"] == ""
+    assert result["selected_reference_annotation_recovered"] is False
+    assert result["placeholder_ok"] is False
+    assert result["replacement_ok"] is False
 
 
 def test_wrong_selection_gets_wrong_passage_not_expected_text():

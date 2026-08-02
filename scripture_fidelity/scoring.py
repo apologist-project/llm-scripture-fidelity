@@ -543,6 +543,12 @@ def quotation_fidelity():
                     "selected_reference_parsed": state.store.get(
                         "selected_reference_parsed"
                     ),
+                    "selected_reference_annotation": state.store.get(
+                        "selected_reference_annotation"
+                    ),
+                    "selected_reference_annotation_recovered": bool(
+                        state.store.get("selected_reference_annotation_recovered")
+                    ),
                     "lookup_fixture_id": state.store.get("lookup_fixture_id"),
                     "tool_calls": tool_call_evidence,
                     "tool_lookup_fixture_ids": [
