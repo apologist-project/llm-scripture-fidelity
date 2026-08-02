@@ -57,7 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the permutation grid and exit without calling any model",
+        help=(
+            "Print the permutation grid, run dependency checks, and exit "
+            "without executing the study"
+        ),
     )
     run.add_argument(
         "--confirm-large-run",
@@ -256,9 +259,35 @@ def _cmd_run(args) -> int:
         return 2
 
     _print_grid(config, args.iterations)
+
+    from scripture_fidelity.preflight import (
+        print_dependency_report,
+        run_dependency_checks,
+    )
+
+    console.print("Running dependency checks…")
+    check_failures = print_dependency_report(run_dependency_checks(config), console)
+
     if args.dry_run:
-        console.print("[yellow]Dry run: no model calls made.[/yellow]")
+        if check_failures:
+            console.print(
+                "[yellow]Dry run finished with dependency failures; "
+                "study was not executed.[/yellow]"
+            )
+            return 2
+        console.print(
+            "[yellow]Dry run: dependency checks passed; "
+            "study was not executed.[/yellow]"
+        )
         return 0
+
+    if check_failures:
+        console.print(
+            f"[red]Aborting run:[/red] {check_failures} dependency check(s) "
+            f"failed. Fix the issues above and retry (or use --dry-run to "
+            f"re-validate)."
+        )
+        return 2
 
     from scripture_fidelity.runner import CALL_VOLUME_THRESHOLD, call_accounting
 
@@ -273,15 +302,6 @@ def _cmd_run(args) -> int:
             f"including transport retries) exceeds the threshold of "
             f"{CALL_VOLUME_THRESHOLD}. Review the grid with --dry-run and "
             f"re-run with --confirm-large-run to authorize."
-        )
-        return 2
-
-    import os
-
-    if "web_search" in config.methods and not os.environ.get("PARALLEL_API_KEY"):
-        console.print(
-            "[red]Config error:[/red] PARALLEL_API_KEY is not set "
-            "(required for the web_search method)"
         )
         return 2
 

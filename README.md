@@ -110,7 +110,13 @@ Always start with a dry run to see the grid size and estimated call count before
 scripture-fidelity run --dry-run
 ```
 
-The dry run reports both a semantic model-turn ceiling and a provider-attempt
+The dry run (and the start of every real CLI run) probes external dependencies:
+each configured model, each configured Bible translation, and — when
+`web_search` is among `METHODS` — the Parallel.ai search provider. Failures are
+collected into one table; a real run aborts if any check failed. The research
+API path does not run these checks.
+
+The dry run also reports both a semantic model-turn ceiling and a provider-attempt
 ceiling. Tool-mediated methods permit one tool-call turn followed by one final
 response; all other methods use one model turn. The provider-attempt ceiling
 also includes bounded transport retries and is therefore a conservative
@@ -147,7 +153,7 @@ scripture-fidelity run \
 | `--max-tasks N` | `4` | Max Inspect tasks running in parallel. |
 | `--display full\|conversation\|rich\|plain\|log\|none` | `rich` | Inspect progress display. |
 | `--cache-dir DIR` | `.cache/passages` | Passage cache location. |
-| `--dry-run` | | Print the grid and exit without any model calls. |
+| `--dry-run` | | Print the grid, run dependency checks, and exit without executing the study. |
 | `--methods`, `--models`, `--translations`, `--languages`, `--references` | | Comma-separated subsets of the configured lists. |
 | `--temperatures` | | Comma-separated values that *replace* the configured list. |
 | `--set-sizes` | | Comma-separated reference set sizes that *replace* `REFERENCE_SET_SIZES` (e.g. `1,3`). |
@@ -259,6 +265,7 @@ scripture-fidelity run --models mockllm/model --translations BSB \
 scripture_fidelity/
   cli.py            # run / report / list-bibles subcommands
   config.py         # .env parsing and validation
+  preflight.py      # CLI dependency checks (models, translations, web search)
   references.py     # "John 3:16" -> canonical USFM reference
   prompts.py        # per-language prompt templates for each method
   solvers.py        # Inspect solvers/tools for the six methods
